@@ -1,4 +1,5 @@
 package com.hotel.system.entity;
+import com.hotel.system.entity.enums.ServiceStatus;
 
 import jakarta.persistence.*;
 import lombok.*;
@@ -38,5 +39,7 @@ public class Service {
     @Column(name = "SERVICE_BasePrice", nullable = false)
     private Double basePrice;
 
-
+    @Enumerated(EnumType.STRING)
+    @Column(name = "SERVICE_Status", nullable = false, length = 20)
+    private ServiceStatus status;
 }
