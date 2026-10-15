@@ -7,36 +7,38 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "INCIDENT")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class Incident {
+
     @Id
     @Column(name = "INCIDENT_ID", length = 10)
     private String id;
 
-    @Column(name = "INCIDENT_Name", nullable = false, length = 100)
+    @Column(name = "INCIDENT_Name")
     private String name;
 
-    @Column(name = "INCIDENT_OccurTime", nullable = false)
+    @Column(name = "INCIDENT_OccurTime")
     private LocalDateTime occurTime;
 
     @Column(name = "INCIDENT_Description", length = 255)
     private String description;
 
-    @Column(name = "INCIDENT_Responsible", length = 50)
+    @Column(name = "INCIDENT_Responsible", length = 20)
     private String responsible;
 
     @Column(name = "INCIDENT_Money")
     private Double money;
 
-    @Column(name = "INCIDENT_Handle", length = 255)
+    @Column(name = "INCIDENT_Handle", length = 20)
     private String handle;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "INCIDENT_Status", nullable = false, length = 20)
+    @Column(name = "INCIDENT_Status", length = 21)
     private IncidentStatus status;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "RENTAL_DETAIL_ID", nullable = false)
+    @ManyToOne
+    @JoinColumn(name = "RENTAL_DETAIL_ID")
     private RentalDetail rentalDetail;
 }

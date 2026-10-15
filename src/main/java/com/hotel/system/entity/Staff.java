@@ -5,6 +5,8 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+import com.hotel.system.entity.enums.WorkingStatus;
+
 @Entity
 @Table(name = "STAFF")
 @Getter
@@ -25,4 +27,7 @@ public class Staff {
     @JoinColumn(name = "USER_ID")
     private Users user;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "STAFF_WorkingStatus", nullable = false)
+    private WorkingStatus workingStatus = WorkingStatus.WORKING;
 }

@@ -2,44 +2,46 @@ package com.hotel.system.entity;
 
 import com.hotel.system.entity.enums.RentalStatus;
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 @Entity
 @Table(name = "RENTAL")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class Rental {
+
     @Id
     @Column(name = "RENTAL_ID", length = 10)
     private String id;
 
-    @Column(name = "RENTAL_RentDate", nullable = false)
+    @Column(name = "RENTAL_RentDate")
     private LocalDateTime rentDate;
 
-    @Column(name = "RENTAL_Note", length = 255)
+    @Column(name = "RENTAL_Note")
     private String note;
 
-    @Column(name = "RENTAL_IsBooking", nullable = false)
+    @Column(name = "RENTAL_IsBooking")
     private Boolean isBooking;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "RENTAL_Status", nullable = false, length = 20)
+    @Column(name = "RENTAL_Status", length = 20)
     private RentalStatus status;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "CUSTOMER_ID", nullable = false)
+    @ManyToOne
+    @JoinColumn(name = "CUSTOMER_ID", referencedColumnName = "USER_ID")
     private Customer customer;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "STAFF_ID")
-    private Staff staff; // Nullable: Nếu khách tự đặt online thì null
+    @ManyToOne
+    @JoinColumn(name = "STAFF_ID", referencedColumnName = "USER_ID")
+    private Staff staff;
 
     @OneToMany(mappedBy = "rental", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<RentalDetail> details = new ArrayList<>();
-
-    @OneToMany(mappedBy = "rental")
-    private List<Bill> bills = new ArrayList<>();
+    private List<RentalDetail> rentalDetails = new ArrayList<>();
+    
 }

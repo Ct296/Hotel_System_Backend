@@ -30,5 +30,4 @@ public class AppliedPeriod {
     @ManyToOne(optional = false)
     @JoinColumn(name = "ROOM_TYPE_ID", nullable = false)
     private RoomType roomType;
-
 }

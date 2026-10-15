@@ -6,9 +6,12 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "SERVICE_USAGE")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class ServiceUsage {
+
     @Id
     @Column(name = "SERVICE_USAGE_ID", length = 10)
     private String id;
@@ -22,11 +25,12 @@ public class ServiceUsage {
     @Column(name = "SERVICE_USAGE_UnitPrice", nullable = false)
     private Double unitPrice;
 
-    @ManyToOne(optional = false)
+    // Cập nhật: Nối vào RentalDetail thay vì Rental
+    @ManyToOne
     @JoinColumn(name = "RENTAL_DETAIL_ID", nullable = false)
     private RentalDetail rentalDetail;
 
-    @ManyToOne(optional = false)
+    @ManyToOne
     @JoinColumn(name = "SERVICE_ID", nullable = false)
     private Service service;
 }

@@ -127,7 +127,7 @@ INSERT INTO AMENITY (AMENITY_ID, AMENITY_Name) VALUES
 INSERT INTO ROOM_AMENITY (ROOM_TYPE_ID, AMENITY_ID) VALUES 
     ('RTP0000001', 'AMN0000001'), ('RTP0000001', 'AMN0000002'),
     ('RTP0000002', 'AMN0000001'), ('RTP0000002', 'AMN0000002'), ('RTP0000002', 'AMN0000003'),
-    ('RTP0000003', 'AMN0000001'), ('RTP0000003', 'AMN0000002'), ('RTP0000003', 'AMN0000003'), ('RTP0000003', 'AMN0000004'),
+    ('RTP0000003', 'AMN0000001'), ('RTP0000003', 'AMN0000002'), ('RTP0000003', 'AMN0000003'), ('RTP0000004', 'AMN0000004'),
     ('RTP0000004', 'AMN0000001'), ('RTP0000004', 'AMN0000002'), ('RTP0000004', 'AMN0000003'), ('RTP0000004', 'AMN0000004'), ('RTP0000004', 'AMN0000005');
 
 -- -----------------------------------------------------------
@@ -195,15 +195,7 @@ INSERT INTO HISTORY_WORK (HISTORY_WORK_ID, HISTORY_WORK_CheckinTime, HISTORY_WOR
     ('HWK0000002', '2026-02-10 12:02:00', '2026-02-10 17:57:00', FALSE, 'COMPLETED', 'USR0000007', 'WKS0000002');
 
 -- -----------------------------------------------------------
--- 11) CHÍNH SÁCH
--- -----------------------------------------------------------
-INSERT INTO POLICY
-    (POLICY_Number, POLICY_Name, POLICY_Content, POLICY_Subject, POLICY_CreateDate, POLICY_UpdateDate, admin_id)
-VALUES
-    ('POL0000001', 'Điều khoản đặt phòng', 'Quy định về khách sạn', 'CUSTOMER', '2026-01-13 08:00:00', '2026-01-13 08:00:00', 'USR0000001');
-
--- -----------------------------------------------------------
--- 12) RENTAL & RENTAL_DETAIL (FIXED: Giỏ hàng đa phòng)
+-- 11) RENTAL & RENTAL_DETAIL (FIXED: Giỏ hàng đa phòng)
 -- -----------------------------------------------------------
 -- Đơn đặt tổng
 INSERT INTO RENTAL (RENTAL_ID, RENTAL_RentDate, RENTAL_Note, RENTAL_IsBooking, RENTAL_Status, CUSTOMER_ID, STAFF_ID) VALUES
@@ -225,7 +217,7 @@ VALUES
     ('RDT0000004', '2026-02-16 10:00:00',  4, 0, 2, 200000, 'CHECKED_OUT', 'REN0000003', 'ROM0000002');
 
 -- -----------------------------------------------------------
--- 13) SỰ CỐ (INCIDENT) - NEW TABLE
+-- 12) SỰ CỐ (INCIDENT) - NEW TABLE
 -- -----------------------------------------------------------
 INSERT INTO INCIDENT 
     (INCIDENT_ID, INCIDENT_Name, INCIDENT_OccurTime, INCIDENT_Description, INCIDENT_Responsible, INCIDENT_Money, INCIDENT_Handle, INCIDENT_Status, RENTAL_DETAIL_ID)
@@ -233,7 +225,7 @@ VALUES
     ('ICD0000001', 'Làm vỡ cốc', '2026-02-05 10:00:00', 'Khách làm vỡ cốc thủy tinh', 'CUSTOMER', 50000, 'Khách đã đền bù', 'RESOLVED', 'RDT0000001');
 
 -- -----------------------------------------------------------
--- 14) BILL & PAYMENT
+-- 13) BILL & PAYMENT
 -- -----------------------------------------------------------
 INSERT INTO BILL
     (BILL_ID, BILL_CreateDate, BILL_TotalAmount, BILL_Type, BILL_ActualStayHours,
@@ -249,7 +241,7 @@ INSERT INTO PAYMENT (PAYMENT_ID, PAYMENT_Method, PAYMENT_Date, PAYMENT_Transacti
     ('PAY0000002', 'CASH', '2026-02-05 16:16:00', 'GD-FIN-REN0000001', 'BIL0000002');
 
 -- -----------------------------------------------------------
--- 15) SERVICE_USAGE (FIXED: Liên kết qua RENTAL_DETAIL)
+-- 14) SERVICE_USAGE (FIXED: Liên kết qua RENTAL_DETAIL)
 -- -----------------------------------------------------------
 INSERT INTO SERVICE_USAGE
     (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_Time, SERVICE_USAGE_UnitPrice, RENTAL_DETAIL_ID, SERVICE_ID)
@@ -259,7 +251,7 @@ VALUES
     ('SVG0000003',  2, '2026-02-08 07:00:00',  90000, 'RDT0000002', 'SER0000002');
 
 -- -----------------------------------------------------------
--- 16) REVIEW
+-- 15) REVIEW
 -- -----------------------------------------------------------
 INSERT INTO REVIEW (REVIEW_ID, REVIEW_Rate, REVIEW_Description, REVIEW_UpdateDate, USER_ID) VALUES
     ('REV0000001', 5, 'Phòng sạch sẽ, thủ tục nhanh', '2026-02-06 10:00:00', 'USR0000009'),

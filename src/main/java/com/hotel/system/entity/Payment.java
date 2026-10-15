@@ -28,7 +28,7 @@ public class Payment {
     @Column(name = "PAYMENT_Date", nullable = false)
     private LocalDateTime date;
 
-    @Column(name = "PAYMENT_Transaction", nullable = false, length = 50)
+    @Column(name = "PAYMENT_Transaction", length = 50)
     private String transaction;
 
     @OneToOne(optional = false)

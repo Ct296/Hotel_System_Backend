@@ -1,13 +1,16 @@
 package com.hotel.system;
 
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+
+@EnableScheduling
 @SpringBootApplication
-public class SystemApplication {
+public class HotelSystemApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(SystemApplication.class, args);
+		SpringApplication.run(HotelSystemApplication.class, args);
 	}
 
 }

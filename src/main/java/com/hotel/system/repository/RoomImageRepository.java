@@ -9,8 +9,10 @@ import java.util.Optional;
 
 public interface RoomImageRepository extends JpaRepository<RoomImage, String> {
 
-    List<RoomImage> findAllByRoomOrderByCreateDateAsc(Room room);
+    List<RoomImage> findAllByRoomOrderByIdAsc(Room room);
 
+    List<RoomImage> findAllByRoomOrderByIsPrimaryDesc(Room room);
+    
     Optional<RoomImage> findFirstByRoomAndIsPrimaryTrue(Room room);
 
     long countByRoom(Room room);

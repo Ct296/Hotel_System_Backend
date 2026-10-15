@@ -21,12 +21,9 @@ public class RoomAmenity {
     @JoinColumn(name = "AMENITY_ID", nullable = false)
     private Amenity amenity;
 
-    // Class nội bộ để định nghĩa Khóa chính kép (Composite Key) cho JPA
-    @Getter @Setter
-    @NoArgsConstructor @AllArgsConstructor
     @EqualsAndHashCode
     public static class RoomAmenityId implements Serializable {
-        private String roomType; // Khớp tên với thuộc tính roomType ở trên
-        private String amenity;  // Khớp tên với thuộc tính amenity ở trên
+        private String roomType; 
+        private String amenity; 
     }
 }

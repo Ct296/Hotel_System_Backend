@@ -24,5 +24,4 @@ public class WorkSchedule {
     @Enumerated(EnumType.STRING)
     @Column(name = "WORK_SCHEDULE_Shift", nullable = false, length = 20)
     private Shift shift;
-
 }

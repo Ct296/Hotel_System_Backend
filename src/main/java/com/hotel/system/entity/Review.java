@@ -7,10 +7,10 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(
-name = "REVIEW",
-uniqueConstraints = {
-        @UniqueConstraint(name = "UK_REVIEW_USER", columnNames = "USER_ID")
-}
+        name = "REVIEW",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "UK_REVIEW_USER", columnNames = "USER_ID")
+        }
 )
 @Getter
 @Setter
@@ -34,5 +34,4 @@ public class Review {
     @OneToOne(optional = false)
     @JoinColumn(name = "USER_ID", nullable = false, unique = true)
     private Customer customer;
-
 }

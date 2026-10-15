@@ -9,43 +9,45 @@ import java.util.List;
 
 @Entity
 @Table(name = "RENTAL_DETAIL")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class RentalDetail {
     @Id
     @Column(name = "RENTAL_DETAIL_ID", length = 10)
     private String id;
 
-    @Column(name = "RENTAL_DETAIL_CheckinDate", nullable = false)
+    @Column(name = "RENTAL_DETAIL_CheckinDate")
     private LocalDateTime checkinDate;
 
-    @Column(name = "RENTAL_DETAIL_LengthOfStay", nullable = false)
+    @Column(name = "RENTAL_DETAIL_LengthOfStay")
     private Integer lengthOfStay;
+
+    @Column(name = "RENTAL_DETAIL_UnitPrice")
+    private Double unitPrice;
+
+        @Column(name = "RENTAL_DETAIL_AdultCount", nullable = false)
+    private Integer adultCount;
 
     @Column(name = "RENTAL_DETAIL_ChildrenCount", nullable = false)
     private Integer childrenCount;
 
-    @Column(name = "RENTAL_DETAIL_AdultCount", nullable = false)
-    private Integer adultCount;
-
-    @Column(name = "RENTAL_DETAIL_UnitPrice", nullable = false)
-    private Double unitPrice;
-
     @Enumerated(EnumType.STRING)
-    @Column(name = "RENTAL_DETAIL_Status", nullable = false, length = 20)
+    @Column(name = "RENTAL_DETAIL_Status", length = 20)
     private RentalDetailStatus status;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "RENTAL_ID", nullable = false)
+    @ManyToOne
+    @JoinColumn(name = "RENTAL_ID", referencedColumnName = "RENTAL_ID")
     private Rental rental;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "ROOM_ID", nullable = false)
+
+    @ManyToOne
+    @JoinColumn(name = "ROOM_ID", referencedColumnName = "ROOM_ID")
     private Room room;
 
-    @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ServiceUsage> serviceUsages = new ArrayList<>();
 
-    @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Incident> incidents = new ArrayList<>();
 }

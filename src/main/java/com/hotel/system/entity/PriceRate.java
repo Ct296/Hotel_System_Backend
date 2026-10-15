@@ -28,5 +28,4 @@ public class PriceRate {
 
     @Column(name = "PRICE_RATE_UpdateDate")
     private LocalDateTime updateDate;
-
 }

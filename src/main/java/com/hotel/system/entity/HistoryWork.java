@@ -23,9 +23,12 @@ public class HistoryWork {
 
     @Column(name = "HISTORY_WORK_CheckoutTime")
     private LocalDateTime checkoutTime;
+    
+    @Column(name = "HISTORY_WORK_OvertimeHours")
+    private Double overtimeHours;
 
-    @Column(name = "HISTORY_WORK_IsOverTime")
-    private Boolean isOverTime = false;
+    @Column(name = "HISTORY_WORK_Note", length = 255)
+    private String note;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "HISTORY_WORK_Status", nullable = false, length = 30)

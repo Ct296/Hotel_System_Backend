@@ -1,10 +1,10 @@
 package com.hotel.system.entity;
-import com.hotel.system.entity.enums.ServiceStatus;
 
+import com.hotel.system.entity.enums.ServiceStatus;
 import jakarta.persistence.*;
 import lombok.*;
+
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Entity
 @Table(name = "SERVICE")
@@ -27,19 +27,19 @@ public class Service {
     @Column(name = "SERVICE_Unit", nullable = false, length = 10)
     private String unit;
 
+    @Column(name = "SERVICE_BasePrice", nullable = false)
+    private Double basePrice;
+
     @Column(name = "SERVICE_ImagePath", length = 255)
     private String imagePath;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "SERVICE_Status", nullable = false, length = 20)
+    private ServiceStatus status;
 
     @Column(name = "SERVICE_CreateDate", nullable = false)
     private LocalDateTime createDate;
 
     @Column(name = "SERVICE_UpdateDate")
     private LocalDateTime updateDate;
-
-    @Column(name = "SERVICE_BasePrice", nullable = false)
-    private Double basePrice;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "SERVICE_Status", nullable = false, length = 20)
-    private ServiceStatus status;
 }

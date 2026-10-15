@@ -31,4 +31,11 @@ public interface BillRepository extends JpaRepository<Bill, String> {
             where b.rental.customer.id = :customerId
             """)
     Double sumTotalAmountByCustomerId(@Param("customerId") String customerId);
+
+    @Query(value = "SELECT EXTRACT(MONTH FROM BILL_CreateDate) as month, SUM(BILL_TotalAmount) as total " +
+                   "FROM BILL " +
+                   "WHERE EXTRACT(YEAR FROM BILL_CreateDate) = :year AND BILL_Type = 'FINAL' " +
+                   "GROUP BY EXTRACT(MONTH FROM BILL_CreateDate) " +
+                   "ORDER BY month", nativeQuery = true)
+    List<Object[]> sumRevenueByMonth(@Param("year") int year);
 }

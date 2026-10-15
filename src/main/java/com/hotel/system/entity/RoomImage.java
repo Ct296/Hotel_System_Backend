@@ -23,9 +23,6 @@ public class RoomImage {
     @Column(name = "ROOM_IMAGE_IsPrimary", nullable = false)
     private Boolean isPrimary = false;
 
-    @Column(name = "ROOM_IMAGE_CreateDate", nullable = false)
-    private LocalDateTime createDate;
-
     @ManyToOne
     @JoinColumn(name = "ROOM_ID", nullable = false)
     private Room room;

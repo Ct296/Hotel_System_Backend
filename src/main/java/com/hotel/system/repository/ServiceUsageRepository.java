@@ -14,10 +14,4 @@ public interface ServiceUsageRepository extends JpaRepository<ServiceUsage, Stri
     List<ServiceUsage> findByServiceIdOrderByTimeDesc(String serviceId);
 
     long countByServiceId(String serviceId);
-
-    // Lấy danh sách dịch vụ đã dùng theo chi tiết phòng (RentalDetail)
-    List<ServiceUsage> findByRentalDetail_IdOrderByTimeDesc(String rentalDetailId);
-    
-    // Nếu muốn lấy TẤT CẢ dịch vụ của một Booking tổng (Rental)
-    List<ServiceUsage> findByRentalDetail_Rental_IdOrderByTimeDesc(String rentalId);
 }
