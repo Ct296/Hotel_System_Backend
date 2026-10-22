@@ -3,7 +3,6 @@ package com.hotel.system.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-
 @Entity
 @Table(name = "ADMIN")
 @Getter

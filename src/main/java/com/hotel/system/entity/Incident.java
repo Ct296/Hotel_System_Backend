@@ -41,4 +41,8 @@ public class Incident {
     @ManyToOne
     @JoinColumn(name = "RENTAL_DETAIL_ID")
     private RentalDetail rentalDetail;
+
+    @ManyToOne
+    @JoinColumn(name = "CREATED_BY")
+    private Users createdBy;
 }

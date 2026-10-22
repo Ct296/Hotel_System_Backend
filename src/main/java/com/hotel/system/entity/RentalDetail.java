@@ -40,7 +40,6 @@ public class RentalDetail {
     @JoinColumn(name = "RENTAL_ID", referencedColumnName = "RENTAL_ID")
     private Rental rental;
 
-
     @ManyToOne
     @JoinColumn(name = "ROOM_ID", referencedColumnName = "ROOM_ID")
     private Room room;

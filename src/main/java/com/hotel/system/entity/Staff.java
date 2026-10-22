@@ -2,9 +2,7 @@ package com.hotel.system.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.time.LocalDateTime;
-
 import com.hotel.system.entity.enums.WorkingStatus;
 
 @Entity

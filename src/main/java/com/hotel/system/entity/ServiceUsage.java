@@ -25,7 +25,6 @@ public class ServiceUsage {
     @Column(name = "SERVICE_USAGE_UnitPrice", nullable = false)
     private Double unitPrice;
 
-    // Cập nhật: Nối vào RentalDetail thay vì Rental
     @ManyToOne
     @JoinColumn(name = "RENTAL_DETAIL_ID", nullable = false)
     private RentalDetail rentalDetail;

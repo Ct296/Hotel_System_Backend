@@ -3,7 +3,6 @@ package com.hotel.system.entity;
 import com.hotel.system.entity.enums.Shift;
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.time.LocalDate;
 
 @Entity

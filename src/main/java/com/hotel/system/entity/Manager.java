@@ -2,7 +2,6 @@ package com.hotel.system.entity;
 
 import com.hotel.system.entity.enums.ManagerType;
 import com.hotel.system.entity.enums.WorkingStatus;
-
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -26,6 +25,7 @@ public class Manager {
     @Enumerated(EnumType.STRING)
     @Column(name = "MANAGER_JobTitle", nullable = false, length = 30)
     private ManagerType title;
+
 
     @Enumerated(EnumType.STRING)
     @Column(name = "MANAGER_WorkingStatus", nullable = false)

@@ -3,7 +3,6 @@ package com.hotel.system.entity;
 import com.hotel.system.entity.enums.RoomStatus;
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.util.ArrayList;
 import java.util.List;
 

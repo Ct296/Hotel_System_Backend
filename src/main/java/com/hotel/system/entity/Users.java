@@ -4,7 +4,6 @@ import com.hotel.system.entity.enums.Gender;
 import com.hotel.system.entity.enums.Role;
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 

@@ -2,7 +2,6 @@ package com.hotel.system.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,9 +33,6 @@ public class RoomType {
     @Column(name = "ROOM_TYPE_Area", nullable = false, precision = 6, scale = 2)
     private BigDecimal area;
 
-    @OneToMany(mappedBy = "roomType", cascade = CascadeType.ALL, orphanRemoval = true) 
-    private List<RoomAmenity> roomAmenities;
-
     @Column(name = "ROOM_TYPE_BasePrice", nullable = false)
     private Double basePrice;
 
@@ -51,4 +47,9 @@ public class RoomType {
 
     @Column(name = "ROOM_TYPE_UpdateDate")
     private LocalDateTime updateDate;
+
+    @OneToMany(mappedBy = "roomType", cascade = CascadeType.ALL, orphanRemoval = true) 
+    private List<RoomAmenity> roomAmenities;
+
+
 }

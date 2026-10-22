@@ -5,7 +5,8 @@ import lombok.Getter;
 @Getter
 public enum IncidentStatus {
     PROCESSING("Đang xử lý"),
-    RESOLVED("Đã giải quyết xong");
+    RESOLVED("Đã giải quyết xong"),
+    REJECTED("Đã hủy bỏ");
 
     private final String displayName;
 
