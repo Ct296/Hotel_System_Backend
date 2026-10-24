@@ -3,9 +3,11 @@ package com.hotel.system.service.ai;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty; 
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(name = "ai.review.scheduler.enabled", havingValue = "true")
 public class ReviewAiScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewAiScheduler.class);

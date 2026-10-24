@@ -20,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -36,12 +37,12 @@ public class AuthController {
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
 
-    // DTO nội bộ dùng để nhận Request Login từ Vue
     @Data
     public static class LoginRequest {
         private String email; 
         private String password;
-        private boolean isEmployee; // Vue truyền true nếu đang ở trang login của nhân viên
+        @JsonProperty("isEmployee")
+        private boolean isEmployee; 
     }
 
     // 1. ĐĂNG NHẬP (Chung cho Khách và Nhân viên)

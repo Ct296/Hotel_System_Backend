@@ -1,5 +1,6 @@
 package com.hotel.system.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -21,6 +22,7 @@ public class RoomImage {
     @Column(name = "ROOM_IMAGE_IsPrimary", nullable = false)
     private Boolean isPrimary = false;
 
+    @JsonIgnore
     @ManyToOne
     @JoinColumn(name = "ROOM_ID", nullable = false)
     private Room room;

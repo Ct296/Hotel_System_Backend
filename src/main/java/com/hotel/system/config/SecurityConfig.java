@@ -3,6 +3,7 @@ package com.hotel.system.config;
 import com.hotel.system.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -28,23 +29,27 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)
-            .cors(cors -> cors.configure(http)) // Sử dụng cấu hình CORS từ WebConfig
+            .cors(cors -> cors.configure(http)) 
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Các API cho phép truy cập công khai
-                .requestMatchers("/api/auth/**", "/uploads/**").permitAll()
-                .requestMatchers("/api/public/**").permitAll()
+                // 1. Mở cửa cho request OPTIONS (tránh lỗi CORS chặn đứng từ vòng gửi xe)
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 
-                // Phân quyền API theo Role
+                // 2. Mở cửa cho endpoint báo lỗi của Spring Boot (để hiện đúng 404 thay vì 403)
+                .requestMatchers("/error").permitAll()
+                
+                // 3. Các API công khai (đã gộp cho gọn)
+                .requestMatchers("/api/auth/**", "/api/public/**", "/uploads/**").permitAll()
+                
+                // 4. Phân quyền API theo Role
                 .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
                 .requestMatchers("/api/manager/**").hasAnyAuthority("MANAGER", "ADMIN")
                 .requestMatchers("/api/staff/**").hasAnyAuthority("STAFF", "MANAGER", "ADMIN")
                 .requestMatchers("/api/customer/**").hasAuthority("CUSTOMER")
                 
-                // Tất cả các request khác phải có Token hợp lệ
+                // 5. Tất cả các request khác phải có Token hợp lệ
                 .anyRequest().authenticated()
             )
-            // Thêm Filter kiểm tra JWT trước bộ lọc mật khẩu mặc định
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

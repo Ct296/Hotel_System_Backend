@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -25,47 +26,65 @@ public class AdminAccountService {
 
     @Transactional
     public void createAccount(AdminCreateAccountRequest request) {
-        if (usersRepository.findByEmail(request.getEmail().trim()).isPresent()) {
+        // 1. Validate Null an toàn để chống NullPointerException
+        String email = request.getEmail() != null ? request.getEmail().trim() : "";
+        String pid = request.getPid() != null ? request.getPid().trim() : "CHUA_CAP_NHAT_" + System.currentTimeMillis();
+        
+        if (usersRepository.findByEmail(email).isPresent()) {
             throw new IllegalArgumentException("Email đã tồn tại trong hệ thống.");
         }
-        if (usersRepository.findByPid(request.getPid().trim()).isPresent()) {
+        
+        // Chỉ check trùng PID nếu người dùng có nhập PID
+        if (!pid.startsWith("CHUA_CAP_NHAT_") && usersRepository.findByPid(pid).isPresent()) {
             throw new IllegalArgumentException("CCCD/CMND đã tồn tại.");
         }
 
-        LocalDate dob = LocalDate.parse(request.getDateOfBirth());
+        // Xử lý ngày sinh an toàn
+        LocalDate dob = (request.getDateOfBirth() != null && !request.getDateOfBirth().isBlank()) 
+                        ? LocalDate.parse(request.getDateOfBirth()) 
+                        : LocalDate.of(2000, 1, 1);
+
         LocalDateTime now = LocalDateTime.now();
         String rawPassword = AppUtils.generateRandomPassword(12);
 
         Users newUser = new Users();
         newUser.setId(AppUtils.generateId("USR", 10));
-        newUser.setFirstName(request.getFirstName().trim());
-        newUser.setLastName(request.getLastName().trim());
-        newUser.setEmail(request.getEmail().trim());
-        newUser.setPid(request.getPid().trim());
-        newUser.setPhoneNumber(request.getPhoneNumber().trim());
-        newUser.setNationality(request.getNationality().trim());
-        newUser.setSex(request.getSex());
+        newUser.setFirstName(request.getFirstName() != null ? request.getFirstName().trim() : "Chưa có tên");
+        newUser.setLastName(request.getLastName() != null ? request.getLastName().trim() : "");
+        newUser.setEmail(email);
+        newUser.setPid(pid);
+        newUser.setPhoneNumber(request.getPhoneNumber() != null ? request.getPhoneNumber().trim() : "");
+        newUser.setNationality(request.getNationality() != null ? request.getNationality().trim() : "Việt Nam");
+        newUser.setSex(request.getSex() != null ? request.getSex() : Gender.MALE);
         newUser.setDateOfBirth(dob);
         newUser.setRole(request.getRole());
         newUser.setCreateDate(now);
         newUser.setUpdateDate(now);
         newUser.setAvatar(request.getRole() == Role.STAFF ? "default_staff_avatar.jpg" : "default_manager_avatar.jpg");
-        usersRepository.saveAndFlush(newUser);
+        
+        // SỬA LỖI BUG: Phải gán lại biến để Hibernate quản lý object này
+        newUser = usersRepository.saveAndFlush(newUser);
 
         Account newAccount = new Account();
-        newAccount.setUser(newUser);
+        newAccount.setUser(newUser); // Lúc này newUser đã là entity được quản lý
         newAccount.setPassword(PasswordUtils.hashPassword(rawPassword));
-        accountRepository.saveAndFlush(newAccount);
+        
+        // SỬA LỖI BUG: Gán lại biến Account
+        newAccount = accountRepository.saveAndFlush(newAccount);
 
         if (request.getRole() == Role.MANAGER) {
             Manager manager = new Manager();
             manager.setUser(newUser);
-            manager.setTitle(ManagerType.valueOf(request.getManagerType().trim().toUpperCase()));
+            String mType = request.getManagerType() != null ? request.getManagerType().trim().toUpperCase() : "GENERAL_MANAGER";
+            manager.setTitle(ManagerType.valueOf(mType));
             managerRepository.saveAndFlush(manager);
         } else if (request.getRole() == Role.STAFF) {
             Staff staff = new Staff();
             staff.setUser(newUser);
-            staff.setEmploymentTime(LocalDateTime.parse(request.getEmploymentTime()));
+            LocalDateTime empTime = (request.getEmploymentTime() != null && !request.getEmploymentTime().isBlank()) 
+                                    ? LocalDateTime.parse(request.getEmploymentTime()) 
+                                    : now;
+            staff.setEmploymentTime(empTime);
             staffRepository.saveAndFlush(staff);
         }
 
@@ -77,12 +96,17 @@ public class AdminAccountService {
         status.setAccount(newAccount);
         accountStatusRepository.saveAndFlush(status);
 
-        emailService.sendCreatedAccountEmail(
-                newUser.getEmail(), 
-                AppUtils.buildFullName(newUser.getFirstName(), newUser.getLastName()), 
-                rawPassword, 
-                request.getRole().name()
-        );
+        // Bọc try-catch khi gửi mail. Nếu mail lỗi, tài khoản vẫn được tạo.
+        try {
+            emailService.sendCreatedAccountEmail(
+                    newUser.getEmail(), 
+                    AppUtils.buildFullName(newUser.getFirstName(), newUser.getLastName()), 
+                    rawPassword, 
+                    request.getRole().name()
+            );
+        } catch (Exception e) {
+            System.err.println("Lỗi gửi email cấp mật khẩu: " + e.getMessage());
+        }
     }
 
     @Transactional
@@ -99,7 +123,7 @@ public class AdminAccountService {
         lockedStatus.setName(AccountState.LOCKED);
         lockedStatus.setStartTime(now);
         lockedStatus.setEndTime(indefinite ? null : now.plusDays(durationDays));
-        lockedStatus.setReason(reason == null ? "Khóa tài khoản" : reason);
+        lockedStatus.setReason(reason == null || reason.isBlank() ? "Khóa tài khoản" : reason);
         lockedStatus.setAccount(targetAccount);
         accountStatusRepository.saveAndFlush(lockedStatus);
     }
@@ -122,11 +146,15 @@ public class AdminAccountService {
 
     private void closeCurrentOpenStatus(Account account) {
         LocalDateTime now = LocalDateTime.now();
-        accountStatusRepository.findAll().stream()
-                .filter(s -> s.getAccount().getId().equals(account.getId()) && (s.getEndTime() == null || s.getEndTime().isAfter(now)))
-                .forEach(s -> {
-                    s.setEndTime(now);
-                    accountStatusRepository.save(s);
-                });
+        // Lọc trạng thái mới nhất của đúng 1 User thay vì findAll()
+        Optional<AccountStatus> latestStatusOpt = accountStatusRepository.findTopByAccountIdOrderByStartTimeDesc(account.getUser().getId());
+        
+        if (latestStatusOpt.isPresent()) {
+            AccountStatus latestStatus = latestStatusOpt.get();
+            if (latestStatus.getEndTime() == null || latestStatus.getEndTime().isAfter(now)) {
+                latestStatus.setEndTime(now);
+                accountStatusRepository.saveAndFlush(latestStatus);
+            }
+        }
     }
 }

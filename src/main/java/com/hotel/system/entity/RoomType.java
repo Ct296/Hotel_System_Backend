@@ -1,5 +1,6 @@
 package com.hotel.system.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -48,8 +49,7 @@ public class RoomType {
     @Column(name = "ROOM_TYPE_UpdateDate")
     private LocalDateTime updateDate;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "roomType", cascade = CascadeType.ALL, orphanRemoval = true) 
     private List<RoomAmenity> roomAmenities;
-
-
 }
