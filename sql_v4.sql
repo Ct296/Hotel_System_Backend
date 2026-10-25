@@ -201,13 +201,13 @@ VALUES
 -- -----------------------------------------------------------
 -- 11) GIÁ PHỤ THU / KỲ ÁP DỤNG
 -- -----------------------------------------------------------
-INSERT INTO PRICE_RATE
+INSERT INTO PRICE_RATE 
     (PRICE_RATE_ID, PRICE_RATE_EventName, PRICE_RATE_SurchargeAmount, PRICE_RATE_CreateDate, PRICE_RATE_UpdateDate)
 VALUES
-    ('PRC0000001', 'Phụ thu loại Tiêu chuẩn 2026', 20000, '2026-01-11 08:00:00', '2026-01-11 08:00:00'),
-    ('PRC0000002', 'Phụ thu loại Superior 2026',   20000, '2026-01-11 08:05:00', '2026-01-11 08:05:00'),
-    ('PRC0000003', 'Phụ thu loại Deluxe 2026',     40000, '2026-01-11 08:10:00', '2026-01-11 08:10:00'),
-    ('PRC0000004', 'Phụ thu loại Suite 2026',      70000, '2026-01-11 08:15:00', '2026-01-11 08:15:00');
+    ('PRC0000001', 'Phụ thu loại Tiêu chuẩn 2026', 10.0, '2026-01-11 08:00:00', '2026-01-11 08:00:00'),
+    ('PRC0000002', 'Phụ thu loại Superior 2026', 15.0, '2026-01-11 08:05:00', '2026-01-11 08:05:00'),
+    ('PRC0000003', 'Phụ thu loại Deluxe 2026', 20.0, '2026-01-11 08:10:00', '2026-01-11 08:10:00'),
+    ('PRC0000004', 'Phụ thu loại Suite 2026', 25.0, '2026-01-11 08:15:00', '2026-01-11 08:15:00');
 
 INSERT INTO APPLIED_PERIOD
     (APPLIED_PERIOD_ID, APPLIED_PERIOD_StartDate, APPLIED_PERIOD_EndDate, PRICE_RATE_ID, ROOM_TYPE_ID)

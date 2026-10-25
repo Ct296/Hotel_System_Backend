@@ -3,6 +3,7 @@ package com.hotel.system.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import java.io.Serializable;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "ROOM_AMENITY")
@@ -13,6 +14,7 @@ public class RoomAmenity {
 
     @Id
     @ManyToOne(optional = false)
+    @JsonIgnore 
     @JoinColumn(name = "ROOM_TYPE_ID", nullable = false)
     private RoomType roomType;
 

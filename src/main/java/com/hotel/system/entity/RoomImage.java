@@ -22,8 +22,8 @@ public class RoomImage {
     @Column(name = "ROOM_IMAGE_IsPrimary", nullable = false)
     private Boolean isPrimary = false;
 
-    @JsonIgnore
     @ManyToOne
+    @JsonIgnore
     @JoinColumn(name = "ROOM_ID", nullable = false)
     private Room room;
 }

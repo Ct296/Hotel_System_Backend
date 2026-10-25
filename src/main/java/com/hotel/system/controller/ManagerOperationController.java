@@ -18,6 +18,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import com.hotel.system.dto.room.RoomTypeRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -40,6 +41,9 @@ public class ManagerOperationController {
     private final ManagerRepository managerRepository;
     private final MediaStorageService mediaStorageService;
     private final ManagerOperationService managerOperationService;
+    
+    // Inject Repository mới tạo
+    private final RoomAmenityRepository roomAmenityRepository;
 
     private boolean hasOperationAccess() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -95,70 +99,130 @@ public class ManagerOperationController {
         return ResponseEntity.ok(response);
     }
 
+    // ==========================================
+    // API QUẢN LÝ LOẠI PHÒNG (CHUẨN RESTful)
+    // ==========================================
+
+    @GetMapping("/room-types")
+    public ResponseEntity<?> getAllRoomTypes() {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access Denied"));
+        return ResponseEntity.ok(roomTypeRepository.findAllByOrderByNameAsc());
+    }
+
     @PostMapping("/room-types")
     @Transactional
-    public ResponseEntity<?> saveRoomType(@RequestBody Map<String, Object> payload) {
-        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    public ResponseEntity<?> createRoomType(@RequestBody RoomTypeRequest request) {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access Denied"));
+        
+        String trimmedName = request.getName() == null ? "" : request.getName().trim();
+        if (trimmedName.isBlank() || request.getAdultMax() < 1 || request.getChildrenMax() < 0 || 
+            request.getArea().compareTo(BigDecimal.ZERO) <= 0 || request.getBasePrice() < 0 || 
+            request.getDepositPercent() < 0 || request.getDepositPercent() > 100) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Dữ liệu không hợp lệ."));
+        }
+        
+        if (roomTypeRepository.findByName(trimmedName) != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Tên loại phòng đã tồn tại."));
+        }
+
+        RoomType roomType = new RoomType();
+        roomType.setId(AppUtils.generateId("RTY", 10));
+        roomType.setCreateDate(LocalDateTime.now());
+        roomType.setUpdateDate(LocalDateTime.now());
+        
+        mapRoomTypeData(roomType, request, trimmedName);
+        
+        // Bắt buộc lưu RoomType trước để có dữ liệu trong DB
+        roomTypeRepository.save(roomType);
+        
+        // --- Tự tay lưu Tiện ích ---
+        if (request.getAmenityIds() != null && !request.getAmenityIds().isEmpty()) {
+            amenityRepository.findAllById(request.getAmenityIds()).forEach(amenity -> {
+                RoomAmenity ra = new RoomAmenity();
+                ra.setRoomType(roomType);
+                ra.setAmenity(amenity);
+                roomAmenityRepository.save(ra);
+            });
+        }
+        
+        return ResponseEntity.ok(Map.of("message", "Thêm loại phòng mới thành công."));
+    }
+
+    @PutMapping("/room-types/{id}")
+    @Transactional
+    public ResponseEntity<?> updateRoomType(@PathVariable String id, @RequestBody RoomTypeRequest request) {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access Denied"));
+        
+        RoomType roomType = roomTypeRepository.findById(id).orElse(null);
+        if (roomType == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy loại phòng."));
+
+        String trimmedName = request.getName() == null ? "" : request.getName().trim();
+        RoomType existingByName = roomTypeRepository.findByName(trimmedName);
+        if (existingByName != null && !existingByName.getId().equals(id)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Tên loại phòng đã tồn tại."));
+        }
+
+        roomType.setUpdateDate(LocalDateTime.now());
+        mapRoomTypeData(roomType, request, trimmedName);
+        
+        // Bắt buộc lưu RoomType trước
+        roomTypeRepository.save(roomType);
+        
+        // --- Xử lý Cập nhật Tiện ích bằng tay ---
+        List<String> selectedIds = request.getAmenityIds() != null ? request.getAmenityIds() : new ArrayList<>();
+        
+        // Lấy danh sách tiện ích cũ trong DB
+        List<RoomAmenity> currentAmenities = roomAmenityRepository.findByRoomType(roomType);
+        List<String> currentIds = currentAmenities.stream().map(ra -> ra.getAmenity().getId()).toList();
+        
+        // Xóa những tiện ích bị người dùng bỏ tick
+        List<RoomAmenity> toDelete = currentAmenities.stream()
+            .filter(ra -> !selectedIds.contains(ra.getAmenity().getId()))
+            .toList();
+        roomAmenityRepository.deleteAll(toDelete);
+        
+        // Thêm những tiện ích người dùng mới tick vào
+        List<String> newIds = selectedIds.stream().filter(aid -> !currentIds.contains(aid)).toList();
+        if (!newIds.isEmpty()) {
+            amenityRepository.findAllById(newIds).forEach(amenity -> {
+                RoomAmenity ra = new RoomAmenity();
+                ra.setRoomType(roomType);
+                ra.setAmenity(amenity);
+                roomAmenityRepository.save(ra);
+            });
+        }
+        
+        return ResponseEntity.ok(Map.of("message", "Cập nhật loại phòng thành công."));
+    }
+
+    @DeleteMapping("/room-types/{id}")
+    @Transactional
+    public ResponseEntity<?> deleteRoomType(@PathVariable String id) {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access Denied"));
         try {
-            String roomTypeId = (String) payload.get("roomTypeId");
-            String name = (String) payload.get("name");
-            Integer adultMax = Integer.valueOf(payload.get("adultMax").toString());
-            Integer childrenMax = Integer.valueOf(payload.get("childrenMax").toString());
-            String bed = (String) payload.get("bed");
-            BigDecimal area = new BigDecimal(payload.get("area").toString());
-            Double basePrice = Double.valueOf(payload.get("basePrice").toString());
-            Double depositPercent = Double.valueOf(payload.get("depositPercent").toString());
-            String description = (String) payload.get("description");
-            List<String> amenityIds = (List<String>) payload.get("amenityIds");
-
-            String trimmedName = name == null ? "" : name.trim();
-            if (trimmedName.isBlank() || adultMax < 1 || childrenMax < 0 || area.compareTo(BigDecimal.ZERO) <= 0 || basePrice < 0 || depositPercent < 0 || depositPercent > 100) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Dữ liệu không hợp lệ."));
-            }
-            RoomType existingByName = roomTypeRepository.findByName(trimmedName);
-            if (existingByName != null && (roomTypeId == null || !existingByName.getId().equals(roomTypeId))) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Tên loại phòng bị trùng."));
-            }
-
-            boolean isCreate = roomTypeId == null || roomTypeId.isBlank();
-            RoomType roomType = isCreate ? new RoomType() : roomTypeRepository.findById(roomTypeId).orElseThrow();
-
-            if (isCreate) {
-                roomType.setId(AppUtils.generateId("RTY", 10));
-                roomType.setCreateDate(LocalDateTime.now());
-                roomType.setRoomAmenities(new ArrayList<>());
-            }
-            roomType.setName(trimmedName);
-            roomType.setAdultMax(adultMax);
-            roomType.setChildrenMax(childrenMax);
-            roomType.setBed(bed == null ? "" : bed.trim());
-            roomType.setArea(area);
-            roomType.setBasePrice(basePrice);
-            roomType.setDepositPercent(depositPercent);
-            roomType.setDescription(description == null || description.trim().isBlank() ? null : description.trim());
-            roomType.setUpdateDate(LocalDateTime.now());
-
-            List<String> selectedIds = amenityIds != null ? amenityIds : new ArrayList<>();
-            roomType.getRoomAmenities().removeIf(ra -> !selectedIds.contains(ra.getAmenity().getId()));
-            List<String> currentIds = roomType.getRoomAmenities().stream().map(ra -> ra.getAmenity().getId()).toList();
-            
-            List<String> newIds = selectedIds.stream().filter(id -> !currentIds.contains(id)).toList();
-            if (!newIds.isEmpty()) {
-                amenityRepository.findAllById(newIds).forEach(amenity -> {
-                    RoomAmenity ra = new RoomAmenity();
-                    ra.setRoomType(roomType);
-                    ra.setAmenity(amenity);
-                    roomType.getRoomAmenities().add(ra);
-                });
-            }
-            roomTypeRepository.save(roomType);
-            return ResponseEntity.ok(Map.of("message", isCreate ? "Thêm loại phòng mới thành công." : "Cập nhật loại phòng thành công."));
+            roomTypeRepository.deleteById(id);
+            return ResponseEntity.ok(Map.of("message", "Đã xóa loại phòng."));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of("error", "Không thể xóa loại phòng đang có phòng liên kết."));
         }
     }
 
-    // Nhận Multipart FormData từ Vue
+    // Hàm hỗ trợ map dữ liệu
+    private void mapRoomTypeData(RoomType roomType, RoomTypeRequest request, String trimmedName) {
+        roomType.setName(trimmedName);
+        roomType.setAdultMax(request.getAdultMax());
+        roomType.setChildrenMax(request.getChildrenMax());
+        roomType.setBed(request.getBed() == null ? "" : request.getBed().trim());
+        roomType.setArea(request.getArea());
+        roomType.setBasePrice(request.getBasePrice());
+        roomType.setDepositPercent(request.getDepositPercent());
+        roomType.setDescription(request.getDescription() == null || request.getDescription().isBlank() ? null : request.getDescription().trim());
+    }
+
+    // ==========================================
+    // CÁC API KHÁC GIỮ NGUYÊN
+    // ==========================================
+
     @PostMapping("/rooms")
     @Transactional
     public ResponseEntity<?> saveRoom(@RequestParam(required = false) String roomId, @RequestParam String name,
@@ -231,21 +295,38 @@ public class ManagerOperationController {
         Double surchargeAmount = Double.valueOf(payload.get("surchargeAmount").toString());
 
         String trimmedEventName = eventName == null ? "" : eventName.trim();
-        if (priceRateId != null && !priceRateId.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Sự kiện giá đã tạo thì bị khóa chỉnh sửa."));
-        }
-        if (trimmedEventName.isBlank() || surchargeAmount == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Dữ liệu không hợp lệ."));
+        // Kiểm tra hợp lệ: Tên không rỗng và % phải nằm trong khoảng -100 đến 100
+        if (trimmedEventName.isBlank() || surchargeAmount == null || surchargeAmount < -100 || surchargeAmount > 100) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Dữ liệu không hợp lệ. Mức % phải từ -100 đến 100."));
         }
         
-        PriceRate priceRate = new PriceRate();
-        priceRate.setId(AppUtils.generateId("PRC", 10));
-        priceRate.setCreateDate(LocalDateTime.now());
+        boolean isCreate = priceRateId == null || priceRateId.isBlank();
+        PriceRate priceRate = isCreate ? new PriceRate() : priceRateRepository.findById(priceRateId).orElse(null);
+        
+        if (priceRate == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy chương trình giá."));
+
+        if (isCreate) {
+            priceRate.setId(AppUtils.generateId("PRC", 10));
+            priceRate.setCreateDate(LocalDateTime.now());
+        }
         priceRate.setUpdateDate(LocalDateTime.now());
         priceRate.setEventName(trimmedEventName);
         priceRate.setSurchargeAmount(surchargeAmount);
+        
         priceRateRepository.save(priceRate);
-        return ResponseEntity.ok(Map.of("message", "Tạo sự kiện giá thành công."));
+        return ResponseEntity.ok(Map.of("message", isCreate ? "Tạo chương trình giá thành công." : "Cập nhật chương trình giá thành công."));
+    }
+
+    @DeleteMapping("/price-rates/{id}")
+    public ResponseEntity<?> deletePriceRate(@PathVariable String id) {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        try {
+            priceRateRepository.deleteById(id);
+            priceRateRepository.flush();      
+            return ResponseEntity.ok(Map.of("message", "Đã xóa chương trình giá thành công."));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Không thể xóa vì chương trình này đang được gắn vào một Kỳ áp dụng. Vui lòng sang Tab 2 gỡ kỳ áp dụng trước!"));
+        }
     }
 
     @PostMapping("/applied-periods")
@@ -274,10 +355,7 @@ public class ManagerOperationController {
         }
     }
 
-    @DeleteMapping("/price-rates/{id}")
-    public ResponseEntity<?> deletePriceRate() {
-        return ResponseEntity.badRequest().body(Map.of("error", "Không thể xóa sự kiện giá đã lưu vết hệ thống."));
-    }
+
 
     @DeleteMapping("/applied-periods/{id}")
     @Transactional
@@ -287,7 +365,6 @@ public class ManagerOperationController {
         return ResponseEntity.ok(Map.of("message", "Xóa kỳ áp dụng thành công."));
     }
 
-    // Nhận Multipart FormData từ Vue
     @PostMapping("/services")
     @Transactional
     public ResponseEntity<?> saveService(@RequestParam(required = false) String serviceId, @RequestParam String name,

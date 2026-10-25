@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 @Entity
 @Table(name = "SERVICE_USAGE")
 @Getter
@@ -26,10 +28,12 @@ public class ServiceUsage {
     private Double unitPrice;
 
     @ManyToOne
+    @JsonIgnore
     @JoinColumn(name = "RENTAL_DETAIL_ID", nullable = false)
     private RentalDetail rentalDetail;
 
     @ManyToOne
+    @JsonIgnore
     @JoinColumn(name = "SERVICE_ID", nullable = false)
     private Service service;
 }

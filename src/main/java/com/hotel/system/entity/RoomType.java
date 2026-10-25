@@ -49,7 +49,14 @@ public class RoomType {
     @Column(name = "ROOM_TYPE_UpdateDate")
     private LocalDateTime updateDate;
 
-    @JsonIgnore
-    @OneToMany(mappedBy = "roomType", cascade = CascadeType.ALL, orphanRemoval = true) 
+    @OneToMany(mappedBy = "roomType", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RoomAmenity> roomAmenities;
+
+    @OneToMany(mappedBy = "roomType")
+    @JsonIgnore 
+    private List<Room> rooms;
+
+    @OneToMany(mappedBy = "roomType")
+    @JsonIgnore 
+    private List<AppliedPeriod> appliedPeriods;
 }
