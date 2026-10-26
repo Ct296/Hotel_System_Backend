@@ -14,4 +14,5 @@ public interface WorkScheduleRepository extends JpaRepository<WorkSchedule, Stri
     List<WorkSchedule> findAllByOrderByDateDesc();
 
     boolean existsByDateAndShift(LocalDate date, Shift shift);
+
 }

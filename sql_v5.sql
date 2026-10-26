@@ -1,0 +1,409 @@
+ROLLBACK;
+BEGIN;
+
+-- ===========================================================
+-- 1) HẠNG KHÁCH HÀNG & TIỆN ÍCH (MỞ RỘNG)
+-- ===========================================================
+INSERT INTO TIER_CUSTOMER (TIER_CUS_ID, TIER_CUS_Name, TIER_CUS_Condition, TIER_CUS_Benefit, TIER_CUS_Discount) VALUES
+    ('TCR0000001', 'Đồng',       0,         'Hạng mặc định cho khách mới',                                           0.00),
+    ('TCR0000002', 'Bạc',        5000000,   'Giảm giá cơ bản, ưu tiên hỗ trợ khi cần',                               5.00),
+    ('TCR0000003', 'Vàng',       15000000,  'Giảm giá tốt hơn, ưu tiên xử lý nhanh và hỗ trợ linh hoạt',            10.00),
+    ('TCR0000004', 'Kim Cương',  30000000,  'Ưu tiên hạng cao nhất, hỗ trợ nhanh, nhiều quyền lợi lưu trú hơn',     15.00);
+
+INSERT INTO AMENITY (AMENITY_ID, AMENITY_Name) VALUES
+    ('AME0000001', 'Wifi tốc độ cao'), ('AME0000002', 'Smart TV'), ('AME0000003', 'Tủ lạnh mini (Minibar)'),
+    ('AME0000004', 'Máy sấy tóc'), ('AME0000005', 'Điều hòa nhiệt độ'), ('AME0000006', 'Bồn tắm nằm'),
+    ('AME0000007', 'Ban công view biển'), ('AME0000008', 'Két sắt an toàn'), ('AME0000009', 'Ghế tình yêu'), ('AME0000010', 'Bàn làm việc VIP');
+
+-- ===========================================================
+-- 2) USERS, ACCOUNT, ROLE (TĂNG THÊM 5 KHÁCH HÀNG MỚI)
+-- ===========================================================
+INSERT INTO USERS (USER_ID, USER_FirstName, USER_LastName, USER_Sex, USER_DateOfBirth, USER_PID, USER_Nationality, USER_Email, USER_PhoneNumber, USER_Avatar, USER_Role, USER_CreateDate, USER_UpdateDate) VALUES
+    ('USR0000001', 'Hệ', 'Thống', 'MALE', '1990-01-01', '001000000001', 'Việt Nam', 'admin@ithotel.vn', '0901000001', '/image/default.jpg', 'ADMIN', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000002', 'Ngọc', 'Lan', 'FEMALE', '1991-02-14', '001000000002', 'Việt Nam', 'hr@ithotel.vn', '0901000002', '/image/default.jpg', 'MANAGER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000003', 'Minh', 'Khoa', 'MALE', '1988-06-18', '001000000003', 'Việt Nam', 'op@ithotel.vn', '0901000003', '/image/default.jpg', 'MANAGER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000005', 'Quốc', 'Bảo', 'MALE', '1993-03-05', '001000000005', 'Việt Nam', 'cus@ithotel.vn', '0901000005', '/image/default.jpg', 'MANAGER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000006', 'Mai', 'Anh', 'FEMALE', '1998-04-11', '001000000006', 'Việt Nam', 'staff1@ithotel.vn', '0901000006', '/image/default.jpg', 'STAFF', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000007', 'Hoàng', 'Nam', 'MALE', '1997-07-21', '001000000007', 'Việt Nam', 'staff2@ithotel.vn', '0901000007', '/image/default.jpg', 'STAFF', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000008', 'Phương', 'Linh', 'FEMALE', '1999-10-09', '001000000008', 'Việt Nam', 'staff3@ithotel.vn', '0901000008', '/image/default.jpg', 'STAFF', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    -- 10 Khách hàng
+    ('USR0000009', 'Gia', 'Hân', 'FEMALE', '2000-02-12', '001000000009', 'Việt Nam', 'khach1@gmail.com', '0901000009', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000010', 'Tuấn', 'Kiệt', 'MALE', '1996-11-23', '001000000010', 'Việt Nam', 'khach2@gmail.com', '0901000010', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000011', 'Khánh', 'Vy', 'FEMALE', '1995-08-15', '001000000011', 'Việt Nam', 'khach3@gmail.com', '0901000011', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000012', 'Đức', 'Phát', 'MALE', '1994-12-01', '001000000012', 'Việt Nam', 'khach4@gmail.com', '0901000012', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000013', 'Thanh', 'Trúc', 'FEMALE', '2001-06-30', '001000000013', 'Việt Nam', 'khach5@gmail.com', '0901000013', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000014', 'Bảo', 'Ngọc', 'FEMALE', '1992-05-15', '001000000014', 'Việt Nam', 'khach6@gmail.com', '0901000014', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000015', 'Quang', 'Hải', 'MALE', '1997-04-12', '001000000015', 'Việt Nam', 'khach7@gmail.com', '0901000015', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000016', 'Lan', 'Hương', 'FEMALE', '1985-09-09', '001000000016', 'Việt Nam', 'khach8@gmail.com', '0901000016', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000017', 'Quốc', 'Trường', 'MALE', '1990-12-25', '001000000017', 'Việt Nam', 'khach9@gmail.com', '0901000017', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000018', 'Diễm', 'My', 'FEMALE', '1999-07-07', '001000000018', 'Việt Nam', 'khach10@gmail.com', '0901000018', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00');
+
+INSERT INTO ACCOUNT (USER_ID, USER_Password) VALUES
+    ('USR0000001', 'admin123456'), ('USR0000002', 'manager123'), ('USR0000003', 'manager123'), ('USR0000005', 'manager123'), 
+    ('USR0000006', 'staff123'), ('USR0000007', 'staff123'), ('USR0000008', 'staff123'),
+    ('USR0000009', 'customer123'), ('USR0000010', 'customer123'), ('USR0000011', 'customer123'), ('USR0000012', 'customer123'), ('USR0000013', 'customer123'),
+    ('USR0000014', 'customer123'), ('USR0000015', 'customer123'), ('USR0000016', 'customer123'), ('USR0000017', 'customer123'), ('USR0000018', 'customer123');
+
+INSERT INTO ACCOUNT_STATUS (ACCOUNT_STATUS_ID, ACCOUNT_STATUS_Name, ACCOUNT_STATUS_StartTime, USER_ID) VALUES
+    ('AST0000001', 'ACTIVE', '2026-01-01', 'USR0000001'), ('AST0000002', 'ACTIVE', '2026-01-01', 'USR0000002'), ('AST0000003', 'ACTIVE', '2026-01-01', 'USR0000003'),
+    ('AST0000005', 'ACTIVE', '2026-01-01', 'USR0000005'), ('AST0000006', 'ACTIVE', '2026-01-01', 'USR0000006'), ('AST0000007', 'ACTIVE', '2026-01-01', 'USR0000007'), ('AST0000008', 'ACTIVE', '2026-01-01', 'USR0000008'),
+    ('AST0000009', 'ACTIVE', '2026-01-01', 'USR0000009'), ('AST0000010', 'ACTIVE', '2026-01-01', 'USR0000010'), ('AST0000011', 'ACTIVE', '2026-01-01', 'USR0000011'),
+    ('AST0000012', 'ACTIVE', '2026-01-01', 'USR0000012'), ('AST0000013', 'ACTIVE', '2026-01-01', 'USR0000013'), ('AST0000014', 'ACTIVE', '2026-01-01', 'USR0000014'),
+    ('AST0000015', 'ACTIVE', '2026-01-01', 'USR0000015'), ('AST0000016', 'ACTIVE', '2026-01-01', 'USR0000016'), ('AST0000017', 'ACTIVE', '2026-01-01', 'USR0000017'), ('AST0000018', 'ACTIVE', '2026-01-01', 'USR0000018');
+
+INSERT INTO ADMIN (USER_ID) VALUES ('USR0000001');
+INSERT INTO MANAGER (USER_ID, MANAGER_JobTitle, MANAGER_WorkingStatus) VALUES ('USR0000002', 'HR_MANAGER', 'WORKING'), ('USR0000003', 'OPERATION_MANAGER', 'WORKING'), ('USR0000005', 'CUSTOMER_MANAGER', 'WORKING');
+INSERT INTO STAFF (USER_ID, STAFF_EmploymentTime, STAFF_WorkingStatus) VALUES ('USR0000006', '2025-10-01', 'WORKING'), ('USR0000007', '2025-10-01', 'WORKING'), ('USR0000008', '2025-10-01', 'WORKING');
+INSERT INTO CUSTOMER (USER_ID) VALUES ('USR0000009'), ('USR0000010'), ('USR0000011'), ('USR0000012'), ('USR0000013'), ('USR0000014'), ('USR0000015'), ('USR0000016'), ('USR0000017'), ('USR0000018');
+
+-- ===========================================================
+-- 3) ROOM TYPE, ROOM & AMENITY (MỞ RỘNG LOẠI PHÒNG VIP)
+-- ===========================================================
+INSERT INTO ROOM_TYPE (ROOM_TYPE_ID, ROOM_TYPE_Name, ROOM_TYPE_Bed, ROOM_TYPE_AdultMax, ROOM_TYPE_ChildrenMax, ROOM_TYPE_Area, ROOM_TYPE_BasePrice, ROOM_TYPE_DepositPercent, ROOM_TYPE_Description, ROOM_TYPE_CreateDate, ROOM_TYPE_UpdateDate) VALUES
+    ('RTP0000001', 'Tiêu chuẩn', '1 Giường đơn', 2, 1, 22.50, 180000, 30, 'Phòng gọn gàng.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000002', 'Superior', '1 Giường đôi', 2, 1, 28.00, 260000, 35, 'Nội thất nâng cấp.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000003', 'Deluxe', '2 Giường đơn', 2, 2, 36.50, 380000, 40, 'Phòng cao cấp.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000004', 'Suite', '1 Giường King', 4, 2, 55.00, 650000, 50, 'Phòng hạng sang.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000005', 'Family Suite', '2 Giường King', 4, 4, 75.00, 950000, 50, 'Thích hợp cho gia đình đông người.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000006', 'Penthouse', '3 Giường King', 6, 2, 120.00, 2500000, 50, 'Căn hộ tầng thượng xa hoa nhất.', '2026-01-01 08:00:00', '2026-01-01 08:00:00');
+
+INSERT INTO ROOM_AMENITY (ROOM_TYPE_ID, AMENITY_ID) VALUES
+    ('RTP0000001', 'AME0000001'), ('RTP0000001', 'AME0000005'),
+    ('RTP0000004', 'AME0000001'), ('RTP0000004', 'AME0000006'),
+    ('RTP0000005', 'AME0000001'), ('RTP0000005', 'AME0000007'), ('RTP0000005', 'AME0000008'),
+    ('RTP0000006', 'AME0000001'), ('RTP0000006', 'AME0000007'), ('RTP0000006', 'AME0000009'), ('RTP0000006', 'AME0000010');
+
+INSERT INTO ROOM (ROOM_ID, ROOM_Name, ROOM_Location, ROOM_Status, ROOM_TYPE_ID) VALUES
+    ('ROM0000001', '101', 'Tầng 1', 'AVAILABLE', 'RTP0000001'), ('ROM0000002', '102', 'Tầng 1', 'AVAILABLE', 'RTP0000001'),
+    ('ROM0000003', '103', 'Tầng 1', 'AVAILABLE', 'RTP0000001'), ('ROM0000004', '201', 'Tầng 2', 'AVAILABLE', 'RTP0000002'),
+    ('ROM0000005', '202', 'Tầng 2', 'AVAILABLE', 'RTP0000002'), ('ROM0000006', '203', 'Tầng 2', 'AVAILABLE', 'RTP0000002'),
+    ('ROM0000007', '301', 'Tầng 3', 'AVAILABLE', 'RTP0000003'), ('ROM0000008', '302', 'Tầng 3', 'AVAILABLE', 'RTP0000003'),
+    ('ROM0000009', '303', 'Tầng 3', 'AVAILABLE', 'RTP0000003'), ('ROM0000010', '401', 'Tầng 4', 'AVAILABLE', 'RTP0000004'),
+    ('ROM0000011', '402', 'Tầng 4', 'AVAILABLE', 'RTP0000004'), ('ROM0000012', '403', 'Tầng 4', 'MAINTENANCE', 'RTP0000004'),
+    ('ROM0000013', '501', 'Tầng 5', 'AVAILABLE', 'RTP0000005'), ('ROM0000014', '502', 'Tầng 5', 'AVAILABLE', 'RTP0000005'),
+    ('ROM0000015', '601', 'Tầng 6', 'AVAILABLE', 'RTP0000006'), ('ROM0000016', '602', 'Tầng 6', 'AVAILABLE', 'RTP0000006');
+
+-- ===========================================================
+-- 4) DỊCH VỤ & GIÁ PHỤ THU
+-- ===========================================================
+INSERT INTO SERVICE (SERVICE_ID, SERVICE_Name, SERVICE_Description, SERVICE_Unit, SERVICE_BasePrice, SERVICE_ImagePath, SERVICE_Status, SERVICE_CreateDate, SERVICE_UpdateDate) VALUES
+    ('SER0000001', 'Nước suối', 'Nước suối đóng chai', 'chai', 10000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000002', 'Bữa sáng buffet', 'Tại nhà hàng', 'suất', 90000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000003', 'Giặt ủi', 'Giặt khô/ướt', 'lần', 60000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000004', 'Đưa đón sân bay', 'Xe VIP', 'chuyến', 250000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000005', 'Phụ thu nệm', 'Thêm nệm', 'cái', 180000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01');
+
+INSERT INTO PRICE_RATE (PRICE_RATE_ID, PRICE_RATE_EventName, PRICE_RATE_SurchargeAmount, PRICE_RATE_CreateDate, PRICE_RATE_UpdateDate) VALUES
+    ('PRC0000001', 'Giá mặc định 2026', 0.0, '2026-01-01', '2026-01-01');
+INSERT INTO APPLIED_PERIOD (APPLIED_PERIOD_ID, APPLIED_PERIOD_StartDate, APPLIED_PERIOD_EndDate, PRICE_RATE_ID, ROOM_TYPE_ID) VALUES
+    ('APD0000001', '2026-01-01', '2026-12-31', 'PRC0000001', 'RTP0000001');
+
+-- ===========================================================
+-- 5) LỊCH SỬ HẠNG KHÁCH HÀNG & LỊCH LÀM VIỆC (GIỮ NGUYÊN BẢN GỐC CỦA BẠN)
+-- ===========================================================
+INSERT INTO TIER_HISTORY (TIER_HISTORY_ID, TIER_HISTORY_StartDate, TIER_HISTORY_TotalSpending, TIER_HISTORY_Reason, USER_ID, TIER_CUS_ID) VALUES
+    ('THI0000001', '2026-02-01', 1700000, 'Lên hạng Đồng', 'USR0000009', 'TCR0000001'), ('THI0000002', '2026-02-01', 6900000, 'Lên hạng Bạc', 'USR0000010', 'TCR0000002');
+INSERT INTO WORK_SCHEDULE (WORK_SCHEDULE_ID, WORK_SCHEDULE_Date, WORK_SCHEDULE_Shift) VALUES ('WKS0000001', '2026-02-10', 'MORNING');
+INSERT INTO WORK_ASSIGNMENT (WORK_ASSIGNMENT_ID, WORK_ASSIGNMENT_AssignedAt, WORK_ASSIGNMENT_EndAt, USER_ID, WORK_SCHEDULE_ID) VALUES ('WAT0000001', '2026-02-10 05:45:00', '2026-02-10 12:05:00', 'USR0000006', 'WKS0000001');
+INSERT INTO HISTORY_WORK (HISTORY_WORK_ID, HISTORY_WORK_CheckinTime, HISTORY_WORK_CheckoutTime, HISTORY_WORK_Status, USER_ID, WORK_SCHEDULE_ID) VALUES ('HWK0000001', '2026-02-10 06:01:00', '2026-02-10 11:58:00', 'COMPLETED', 'USR0000006', 'WKS0000001');
+
+-- ===========================================================
+-- 6) GIAO DỊCH 12 THÁNG 2026 (RENTAL, RENTAL_DETAIL, BILL, PAYMENT, SERVICE)
+-- Bơm phồng mỗi tháng để biểu đồ lên xuống cực đẹp!
+-- ===========================================================
+
+-- ----------------- THÁNG 1 -----------------
+INSERT INTO RENTAL (RENTAL_ID, RENTAL_RentDate, RENTAL_IsBooking, RENTAL_Status, CUSTOMER_ID) VALUES 
+    ('REN260101', '2026-01-05 14:00:00', TRUE, 'COMPLETED', 'USR0000009'), 
+    ('REN260102', '2026-01-15 14:00:00', TRUE, 'COMPLETED', 'USR0000014');
+INSERT INTO RENTAL_DETAIL (RENTAL_DETAIL_ID, RENTAL_DETAIL_CheckinDate, RENTAL_DETAIL_LengthOfStay, RENTAL_DETAIL_AdultCount, RENTAL_DETAIL_ChildrenCount, RENTAL_DETAIL_UnitPrice, RENTAL_ID, ROOM_ID) VALUES 
+    ('RDT260101', '2026-01-05 14:00:00', 3, 2, 0, 180000, 'REN260101', 'ROM0000001'), 
+    ('RDT260102', '2026-01-15 14:00:00', 2, 4, 1, 950000, 'REN260102', 'ROM0000013');
+INSERT INTO BILL (BILL_ID, BILL_CreateDate, BILL_TotalAmount, BILL_Type, RENTAL_ID) VALUES 
+    ('BIL260101D', '2026-01-01', 200000, 'DEPOSIT', 'REN260101'), ('BIL260101F', '2026-01-08', 540000, 'FINAL', 'REN260101'),
+    ('BIL260102D', '2026-01-10', 500000, 'DEPOSIT', 'REN260102'), ('BIL260102F', '2026-01-17', 1900000, 'FINAL', 'REN260102');
+INSERT INTO PAYMENT (PAYMENT_ID, PAYMENT_Method, PAYMENT_Date, PAYMENT_Transaction, BILL_ID) VALUES 
+    ('PAY260101D', 'BANK', '2026-01-01', 'GD1', 'BIL260101D'), ('PAY260101F', 'CASH', '2026-01-08', 'GD2', 'BIL260101F'),
+    ('PAY260102D', 'BANK', '2026-01-10', 'GD3', 'BIL260102D'), ('PAY260102F', 'CASH', '2026-01-17', 'GD4', 'BIL260102F');
+INSERT INTO SERVICE_USAGE (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_Time, SERVICE_USAGE_UnitPrice, RENTAL_DETAIL_ID, SERVICE_ID) VALUES 
+    ('SVG260101', 2, '2026-01-06 08:00:00', 90000, 'RDT260101', 'SER0000002'), 
+    ('SVG260102', 4, '2026-01-16 08:00:00', 90000, 'RDT260102', 'SER0000002');
+
+-- ----------------- THÁNG 2 (Tết đông khách) -----------------
+INSERT INTO RENTAL (RENTAL_ID, RENTAL_RentDate, RENTAL_IsBooking, RENTAL_Status, CUSTOMER_ID) VALUES 
+    ('REN260201', '2026-02-12 14:00:00', TRUE, 'COMPLETED', 'USR0000010'), 
+    ('REN260202', '2026-02-14 14:00:00', TRUE, 'COMPLETED', 'USR0000015'),
+    ('REN260203', '2026-02-20 14:00:00', TRUE, 'COMPLETED', 'USR0000018');
+INSERT INTO RENTAL_DETAIL (RENTAL_DETAIL_ID, RENTAL_DETAIL_CheckinDate, RENTAL_DETAIL_LengthOfStay, RENTAL_DETAIL_AdultCount, RENTAL_DETAIL_ChildrenCount, RENTAL_DETAIL_UnitPrice, RENTAL_ID, ROOM_ID) VALUES 
+    ('RDT260201', '2026-02-12 14:00:00', 5, 2, 0, 380000, 'REN260201', 'ROM0000007'), 
+    ('RDT260202', '2026-02-14 14:00:00', 3, 2, 2, 650000, 'REN260202', 'ROM0000011'),
+    ('RDT260203', '2026-02-20 14:00:00', 2, 6, 0, 2500000, 'REN260203', 'ROM0000015');
+INSERT INTO BILL (BILL_ID, BILL_CreateDate, BILL_TotalAmount, BILL_Type, RENTAL_ID) VALUES 
+    ('BIL260201F', '2026-02-17', 2000000, 'FINAL', 'REN260201'), 
+    ('BIL260202F', '2026-02-17', 2500000, 'FINAL', 'REN260202'),
+    ('BIL260203F', '2026-02-22', 5500000, 'FINAL', 'REN260203');
+INSERT INTO PAYMENT (PAYMENT_ID, PAYMENT_Method, PAYMENT_Date, PAYMENT_Transaction, BILL_ID) VALUES 
+    ('PAY260201F', 'BANK', '2026-02-17', 'GD5', 'BIL260201F'), 
+    ('PAY260202F', 'BANK', '2026-02-17', 'GD6', 'BIL260202F'),
+    ('PAY260203F', 'BANK', '2026-02-22', 'GD7', 'BIL260203F');
+INSERT INTO SERVICE_USAGE (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_Time, SERVICE_USAGE_UnitPrice, RENTAL_DETAIL_ID, SERVICE_ID) VALUES 
+    ('SVG260201', 2, '2026-02-13 08:00:00', 90000, 'RDT260201', 'SER0000002'), 
+    ('SVG260202', 1, '2026-02-14 10:00:00', 250000, 'RDT260202', 'SER0000004'),
+    ('SVG260203', 6, '2026-02-21 08:00:00', 90000, 'RDT260203', 'SER0000002');
+
+-- ----------------- THÁNG 3 ĐẾN THÁNG 12 (Data trải dài) -----------------
+INSERT INTO RENTAL (RENTAL_ID, RENTAL_RentDate, RENTAL_IsBooking, RENTAL_Status, CUSTOMER_ID) VALUES 
+    ('REN260301', '2026-03-10 14:00:00', TRUE, 'COMPLETED', 'USR0000011'), ('REN260401', '2026-04-28 14:00:00', TRUE, 'COMPLETED', 'USR0000012'),
+    ('REN260501', '2026-05-15 14:00:00', TRUE, 'COMPLETED', 'USR0000016'), ('REN260601', '2026-06-20 14:00:00', TRUE, 'COMPLETED', 'USR0000017'),
+    ('REN260701', '2026-07-05 14:00:00', TRUE, 'COMPLETED', 'USR0000013'), ('REN260801', '2026-08-10 14:00:00', TRUE, 'COMPLETED', 'USR0000018'),
+    ('REN260901', '2026-09-12 14:00:00', TRUE, 'COMPLETED', 'USR0000009'), ('REN261001', '2026-10-18 14:00:00', TRUE, 'COMPLETED', 'USR0000010'),
+    ('REN261101', '2026-11-22 14:00:00', TRUE, 'COMPLETED', 'USR0000014'), ('REN261201', '2026-12-24 14:00:00', TRUE, 'COMPLETED', 'USR0000015');
+
+INSERT INTO RENTAL_DETAIL (RENTAL_DETAIL_ID, RENTAL_DETAIL_CheckinDate, RENTAL_DETAIL_LengthOfStay, RENTAL_DETAIL_AdultCount, RENTAL_DETAIL_ChildrenCount, RENTAL_DETAIL_UnitPrice, RENTAL_ID, ROOM_ID) VALUES 
+    ('RDT260301', '2026-03-10 14:00:00', 2, 2, 0, 260000, 'REN260301', 'ROM0000004'), ('RDT260401', '2026-04-28 14:00:00', 4, 4, 2, 950000, 'REN260401', 'ROM0000014'),
+    ('RDT260501', '2026-05-15 14:00:00', 1, 2, 0, 180000, 'REN260501', 'ROM0000002'), ('RDT260601', '2026-06-20 14:00:00', 3, 2, 1, 380000, 'REN260601', 'ROM0000008'),
+    ('RDT260701', '2026-07-05 14:00:00', 5, 2, 0, 650000, 'REN260701', 'ROM0000010'), ('RDT260801', '2026-08-10 14:00:00', 2, 6, 2, 2500000, 'REN260801', 'ROM0000016'),
+    ('RDT260901', '2026-09-12 14:00:00', 2, 2, 0, 260000, 'REN260901', 'ROM0000005'), ('RDT261001', '2026-10-18 14:00:00', 1, 2, 0, 180000, 'REN261001', 'ROM0000003'),
+    ('RDT261101', '2026-11-22 14:00:00', 3, 2, 0, 380000, 'REN261101', 'ROM0000009'), ('RDT261201', '2026-12-24 14:00:00', 4, 4, 4, 950000, 'REN261201', 'ROM0000013');
+
+INSERT INTO BILL (BILL_ID, BILL_CreateDate, BILL_TotalAmount, BILL_Type, RENTAL_ID) VALUES 
+    ('BIL260301F', '2026-03-12', 620000, 'FINAL', 'REN260301'), ('BIL260401F', '2026-05-02', 4100000, 'FINAL', 'REN260401'),
+    ('BIL260501F', '2026-05-16', 220000, 'FINAL', 'REN260501'), ('BIL260601F', '2026-06-23', 1350000, 'FINAL', 'REN260601'),
+    ('BIL260701F', '2026-07-10', 3450000, 'FINAL', 'REN260701'), ('BIL260801F', '2026-08-12', 5800000, 'FINAL', 'REN260801'),
+    ('BIL260901F', '2026-09-14', 650000, 'FINAL', 'REN260901'), ('BIL261001F', '2026-10-19', 280000, 'FINAL', 'REN261001'),
+    ('BIL261101F', '2026-11-25', 1350000, 'FINAL', 'REN261101'), ('BIL261201F', '2026-12-28', 4300000, 'FINAL', 'REN261201');
+
+INSERT INTO PAYMENT (PAYMENT_ID, PAYMENT_Method, PAYMENT_Date, PAYMENT_Transaction, BILL_ID) VALUES 
+    ('PAY260301F', 'BANK', '2026-03-12', 'GD8', 'BIL260301F'), ('PAY260401F', 'BANK', '2026-05-02', 'GD9', 'BIL260401F'),
+    ('PAY260501F', 'CASH', '2026-05-16', 'GD10', 'BIL260501F'), ('PAY260601F', 'BANK', '2026-06-23', 'GD11', 'BIL260601F'),
+    ('PAY260701F', 'BANK', '2026-07-10', 'GD12', 'BIL260701F'), ('PAY260801F', 'BANK', '2026-08-12', 'GD13', 'BIL260801F'),
+    ('PAY260901F', 'CASH', '2026-09-14', 'GD14', 'BIL260901F'), ('PAY261001F', 'CASH', '2026-10-19', 'GD15', 'BIL261001F'),
+    ('PAY261101F', 'BANK', '2026-11-25', 'GD16', 'BIL261101F'), ('PAY261201F', 'BANK', '2026-12-28', 'GD17', 'BIL261201F');
+
+INSERT INTO SERVICE_USAGE (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_Time, SERVICE_USAGE_UnitPrice, RENTAL_DETAIL_ID, SERVICE_ID) VALUES 
+    ('SVG260301', 2, '2026-03-11 08:00:00', 90000, 'RDT260301', 'SER0000002'), 
+    ('SVG260401', 4, '2026-04-29 08:00:00', 90000, 'RDT260401', 'SER0000002'),
+    ('SVG260501', 2, '2026-05-15 20:00:00', 10000, 'RDT260501', 'SER0000001'), 
+    ('SVG260601', 1, '2026-06-21 10:00:00', 60000, 'RDT260601', 'SER0000003'),
+    ('SVG260701', 1, '2026-07-05 12:00:00', 250000, 'RDT260701', 'SER0000004'), 
+    ('SVG260801', 6, '2026-08-11 08:00:00', 90000, 'RDT260801', 'SER0000002'),
+    ('SVG260901', 2, '2026-09-13 08:00:00', 90000, 'RDT260901', 'SER0000002'), 
+    ('SVG261001', 4, '2026-10-18 22:00:00', 10000, 'RDT261001', 'SER0000001'),
+    ('SVG261101', 1, '2026-11-24 15:00:00', 60000, 'RDT261101', 'SER0000003'), 
+    ('SVG261201', 4, '2026-12-25 08:00:00', 90000, 'RDT261201', 'SER0000002');
+
+-- -----------------------------------------------------------
+-- 7) ĐÁNH GIÁ (REVIEW) VÀ SỰ CỐ (INCIDENT)
+-- -----------------------------------------------------------
+INSERT INTO REVIEW (REVIEW_ID, REVIEW_Rate, REVIEW_Description, REVIEW_UpdateDate, USER_ID) VALUES
+    ('REV0000001', 5, 'Phòng sạch sẽ, thủ tục nhanh.', '2026-02-06 10:00:00', 'USR0000009'),
+    ('REV0000002', 4, 'Trải nghiệm tốt, phòng yên tĩnh.', '2026-02-08 13:00:00', 'USR0000010');
+
+INSERT INTO INCIDENT (INCIDENT_ID, INCIDENT_Name, INCIDENT_OccurTime, INCIDENT_Description, INCIDENT_Responsible, INCIDENT_Money, INCIDENT_Handle, INCIDENT_Status, RENTAL_DETAIL_ID, CREATED_BY) VALUES 
+    ('ICD0000001', 'Hỏng máy sấy tóc', '2026-02-06 14:30:00', 'Khách làm rơi', 'CUSTOMER', 350000, 'Đền tiền', 'RESOLVED', 'RDT260101', 'USR0000006');
+
+COMMIT;ROLLBACK;
+BEGIN;
+
+-- ===========================================================
+-- 1) HẠNG KHÁCH HÀNG & TIỆN ÍCH (MỞ RỘNG)
+-- ===========================================================
+INSERT INTO TIER_CUSTOMER (TIER_CUS_ID, TIER_CUS_Name, TIER_CUS_Condition, TIER_CUS_Benefit, TIER_CUS_Discount) VALUES
+    ('TCR0000001', 'Đồng',       0,         'Hạng mặc định cho khách mới',                                           0.00),
+    ('TCR0000002', 'Bạc',        5000000,   'Giảm giá cơ bản, ưu tiên hỗ trợ khi cần',                               5.00),
+    ('TCR0000003', 'Vàng',       15000000,  'Giảm giá tốt hơn, ưu tiên xử lý nhanh và hỗ trợ linh hoạt',            10.00),
+    ('TCR0000004', 'Kim Cương',  30000000,  'Ưu tiên hạng cao nhất, hỗ trợ nhanh, nhiều quyền lợi lưu trú hơn',     15.00);
+
+INSERT INTO AMENITY (AMENITY_ID, AMENITY_Name) VALUES
+    ('AME0000001', 'Wifi tốc độ cao'), ('AME0000002', 'Smart TV'), ('AME0000003', 'Tủ lạnh mini (Minibar)'),
+    ('AME0000004', 'Máy sấy tóc'), ('AME0000005', 'Điều hòa nhiệt độ'), ('AME0000006', 'Bồn tắm nằm'),
+    ('AME0000007', 'Ban công view biển'), ('AME0000008', 'Két sắt an toàn'), ('AME0000009', 'Ghế tình yêu'), ('AME0000010', 'Bàn làm việc VIP');
+
+-- ===========================================================
+-- 2) USERS, ACCOUNT, ROLE (TĂNG THÊM 5 KHÁCH HÀNG MỚI)
+-- ===========================================================
+INSERT INTO USERS (USER_ID, USER_FirstName, USER_LastName, USER_Sex, USER_DateOfBirth, USER_PID, USER_Nationality, USER_Email, USER_PhoneNumber, USER_Avatar, USER_Role, USER_CreateDate, USER_UpdateDate) VALUES
+    ('USR0000001', 'Hệ', 'Thống', 'MALE', '1990-01-01', '001000000001', 'Việt Nam', 'admin@ithotel.vn', '0901000001', '/image/default.jpg', 'ADMIN', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000002', 'Ngọc', 'Lan', 'FEMALE', '1991-02-14', '001000000002', 'Việt Nam', 'hr@ithotel.vn', '0901000002', '/image/default.jpg', 'MANAGER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000003', 'Minh', 'Khoa', 'MALE', '1988-06-18', '001000000003', 'Việt Nam', 'op@ithotel.vn', '0901000003', '/image/default.jpg', 'MANAGER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000005', 'Quốc', 'Bảo', 'MALE', '1993-03-05', '001000000005', 'Việt Nam', 'cus@ithotel.vn', '0901000005', '/image/default.jpg', 'MANAGER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000006', 'Mai', 'Anh', 'FEMALE', '1998-04-11', '001000000006', 'Việt Nam', 'staff1@ithotel.vn', '0901000006', '/image/default.jpg', 'STAFF', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000007', 'Hoàng', 'Nam', 'MALE', '1997-07-21', '001000000007', 'Việt Nam', 'staff2@ithotel.vn', '0901000007', '/image/default.jpg', 'STAFF', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000008', 'Phương', 'Linh', 'FEMALE', '1999-10-09', '001000000008', 'Việt Nam', 'staff3@ithotel.vn', '0901000008', '/image/default.jpg', 'STAFF', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    -- 10 Khách hàng
+    ('USR0000009', 'Gia', 'Hân', 'FEMALE', '2000-02-12', '001000000009', 'Việt Nam', 'khach1@gmail.com', '0901000009', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000010', 'Tuấn', 'Kiệt', 'MALE', '1996-11-23', '001000000010', 'Việt Nam', 'khach2@gmail.com', '0901000010', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000011', 'Khánh', 'Vy', 'FEMALE', '1995-08-15', '001000000011', 'Việt Nam', 'khach3@gmail.com', '0901000011', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000012', 'Đức', 'Phát', 'MALE', '1994-12-01', '001000000012', 'Việt Nam', 'khach4@gmail.com', '0901000012', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000013', 'Thanh', 'Trúc', 'FEMALE', '2001-06-30', '001000000013', 'Việt Nam', 'khach5@gmail.com', '0901000013', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000014', 'Bảo', 'Ngọc', 'FEMALE', '1992-05-15', '001000000014', 'Việt Nam', 'khach6@gmail.com', '0901000014', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000015', 'Quang', 'Hải', 'MALE', '1997-04-12', '001000000015', 'Việt Nam', 'khach7@gmail.com', '0901000015', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000016', 'Lan', 'Hương', 'FEMALE', '1985-09-09', '001000000016', 'Việt Nam', 'khach8@gmail.com', '0901000016', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000017', 'Quốc', 'Trường', 'MALE', '1990-12-25', '001000000017', 'Việt Nam', 'khach9@gmail.com', '0901000017', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('USR0000018', 'Diễm', 'My', 'FEMALE', '1999-07-07', '001000000018', 'Việt Nam', 'khach10@gmail.com', '0901000018', '/image/default.jpg', 'CUSTOMER', '2026-01-01 08:00:00', '2026-01-01 08:00:00');
+
+INSERT INTO ACCOUNT (USER_ID, USER_Password) VALUES
+    ('USR0000001', 'admin123456'), ('USR0000002', 'manager123'), ('USR0000003', 'manager123'), ('USR0000005', 'manager123'), 
+    ('USR0000006', 'staff123'), ('USR0000007', 'staff123'), ('USR0000008', 'staff123'),
+    ('USR0000009', 'customer123'), ('USR0000010', 'customer123'), ('USR0000011', 'customer123'), ('USR0000012', 'customer123'), ('USR0000013', 'customer123'),
+    ('USR0000014', 'customer123'), ('USR0000015', 'customer123'), ('USR0000016', 'customer123'), ('USR0000017', 'customer123'), ('USR0000018', 'customer123');
+
+INSERT INTO ACCOUNT_STATUS (ACCOUNT_STATUS_ID, ACCOUNT_STATUS_Name, ACCOUNT_STATUS_StartTime, USER_ID) VALUES
+    ('AST0000001', 'ACTIVE', '2026-01-01', 'USR0000001'), ('AST0000002', 'ACTIVE', '2026-01-01', 'USR0000002'), ('AST0000003', 'ACTIVE', '2026-01-01', 'USR0000003'),
+    ('AST0000005', 'ACTIVE', '2026-01-01', 'USR0000005'), ('AST0000006', 'ACTIVE', '2026-01-01', 'USR0000006'), ('AST0000007', 'ACTIVE', '2026-01-01', 'USR0000007'), ('AST0000008', 'ACTIVE', '2026-01-01', 'USR0000008'),
+    ('AST0000009', 'ACTIVE', '2026-01-01', 'USR0000009'), ('AST0000010', 'ACTIVE', '2026-01-01', 'USR0000010'), ('AST0000011', 'ACTIVE', '2026-01-01', 'USR0000011'),
+    ('AST0000012', 'ACTIVE', '2026-01-01', 'USR0000012'), ('AST0000013', 'ACTIVE', '2026-01-01', 'USR0000013'), ('AST0000014', 'ACTIVE', '2026-01-01', 'USR0000014'),
+    ('AST0000015', 'ACTIVE', '2026-01-01', 'USR0000015'), ('AST0000016', 'ACTIVE', '2026-01-01', 'USR0000016'), ('AST0000017', 'ACTIVE', '2026-01-01', 'USR0000017'), ('AST0000018', 'ACTIVE', '2026-01-01', 'USR0000018');
+
+INSERT INTO ADMIN (USER_ID) VALUES ('USR0000001');
+INSERT INTO MANAGER (USER_ID, MANAGER_JobTitle, MANAGER_WorkingStatus) VALUES ('USR0000002', 'HR_MANAGER', 'WORKING'), ('USR0000003', 'OPERATION_MANAGER', 'WORKING'), ('USR0000005', 'CUSTOMER_MANAGER', 'WORKING');
+INSERT INTO STAFF (USER_ID, STAFF_EmploymentTime, STAFF_WorkingStatus) VALUES ('USR0000006', '2025-10-01', 'WORKING'), ('USR0000007', '2025-10-01', 'WORKING'), ('USR0000008', '2025-10-01', 'WORKING');
+INSERT INTO CUSTOMER (USER_ID) VALUES ('USR0000009'), ('USR0000010'), ('USR0000011'), ('USR0000012'), ('USR0000013'), ('USR0000014'), ('USR0000015'), ('USR0000016'), ('USR0000017'), ('USR0000018');
+
+-- ===========================================================
+-- 3) ROOM TYPE, ROOM & AMENITY (MỞ RỘNG LOẠI PHÒNG VIP)
+-- ===========================================================
+INSERT INTO ROOM_TYPE (ROOM_TYPE_ID, ROOM_TYPE_Name, ROOM_TYPE_Bed, ROOM_TYPE_AdultMax, ROOM_TYPE_ChildrenMax, ROOM_TYPE_Area, ROOM_TYPE_BasePrice, ROOM_TYPE_DepositPercent, ROOM_TYPE_Description, ROOM_TYPE_CreateDate, ROOM_TYPE_UpdateDate) VALUES
+    ('RTP0000001', 'Tiêu chuẩn', '1 Giường đơn', 2, 1, 22.50, 180000, 30, 'Phòng gọn gàng.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000002', 'Superior', '1 Giường đôi', 2, 1, 28.00, 260000, 35, 'Nội thất nâng cấp.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000003', 'Deluxe', '2 Giường đơn', 2, 2, 36.50, 380000, 40, 'Phòng cao cấp.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000004', 'Suite', '1 Giường King', 4, 2, 55.00, 650000, 50, 'Phòng hạng sang.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000005', 'Family Suite', '2 Giường King', 4, 4, 75.00, 950000, 50, 'Thích hợp cho gia đình đông người.', '2026-01-01 08:00:00', '2026-01-01 08:00:00'),
+    ('RTP0000006', 'Penthouse', '3 Giường King', 6, 2, 120.00, 2500000, 50, 'Căn hộ tầng thượng xa hoa nhất.', '2026-01-01 08:00:00', '2026-01-01 08:00:00');
+
+INSERT INTO ROOM_AMENITY (ROOM_TYPE_ID, AMENITY_ID) VALUES
+    ('RTP0000001', 'AME0000001'), ('RTP0000001', 'AME0000005'),
+    ('RTP0000004', 'AME0000001'), ('RTP0000004', 'AME0000006'),
+    ('RTP0000005', 'AME0000001'), ('RTP0000005', 'AME0000007'), ('RTP0000005', 'AME0000008'),
+    ('RTP0000006', 'AME0000001'), ('RTP0000006', 'AME0000007'), ('RTP0000006', 'AME0000009'), ('RTP0000006', 'AME0000010');
+
+INSERT INTO ROOM (ROOM_ID, ROOM_Name, ROOM_Location, ROOM_Status, ROOM_TYPE_ID) VALUES
+    ('ROM0000001', '101', 'Tầng 1', 'AVAILABLE', 'RTP0000001'), ('ROM0000002', '102', 'Tầng 1', 'AVAILABLE', 'RTP0000001'),
+    ('ROM0000003', '103', 'Tầng 1', 'AVAILABLE', 'RTP0000001'), ('ROM0000004', '201', 'Tầng 2', 'AVAILABLE', 'RTP0000002'),
+    ('ROM0000005', '202', 'Tầng 2', 'AVAILABLE', 'RTP0000002'), ('ROM0000006', '203', 'Tầng 2', 'AVAILABLE', 'RTP0000002'),
+    ('ROM0000007', '301', 'Tầng 3', 'AVAILABLE', 'RTP0000003'), ('ROM0000008', '302', 'Tầng 3', 'AVAILABLE', 'RTP0000003'),
+    ('ROM0000009', '303', 'Tầng 3', 'AVAILABLE', 'RTP0000003'), ('ROM0000010', '401', 'Tầng 4', 'AVAILABLE', 'RTP0000004'),
+    ('ROM0000011', '402', 'Tầng 4', 'AVAILABLE', 'RTP0000004'), ('ROM0000012', '403', 'Tầng 4', 'MAINTENANCE', 'RTP0000004'),
+    ('ROM0000013', '501', 'Tầng 5', 'AVAILABLE', 'RTP0000005'), ('ROM0000014', '502', 'Tầng 5', 'AVAILABLE', 'RTP0000005'),
+    ('ROM0000015', '601', 'Tầng 6', 'AVAILABLE', 'RTP0000006'), ('ROM0000016', '602', 'Tầng 6', 'AVAILABLE', 'RTP0000006');
+
+-- ===========================================================
+-- 4) DỊCH VỤ & GIÁ PHỤ THU
+-- ===========================================================
+INSERT INTO SERVICE (SERVICE_ID, SERVICE_Name, SERVICE_Description, SERVICE_Unit, SERVICE_BasePrice, SERVICE_ImagePath, SERVICE_Status, SERVICE_CreateDate, SERVICE_UpdateDate) VALUES
+    ('SER0000001', 'Nước suối', 'Nước suối đóng chai', 'chai', 10000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000002', 'Bữa sáng buffet', 'Tại nhà hàng', 'suất', 90000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000003', 'Giặt ủi', 'Giặt khô/ướt', 'lần', 60000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000004', 'Đưa đón sân bay', 'Xe VIP', 'chuyến', 250000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01'),
+    ('SER0000005', 'Phụ thu nệm', 'Thêm nệm', 'cái', 180000, '/image/default.jpg', 'ACTIVE', '2026-01-01', '2026-01-01');
+
+INSERT INTO PRICE_RATE (PRICE_RATE_ID, PRICE_RATE_EventName, PRICE_RATE_SurchargeAmount, PRICE_RATE_CreateDate, PRICE_RATE_UpdateDate) VALUES
+    ('PRC0000001', 'Giá mặc định 2026', 0.0, '2026-01-01', '2026-01-01');
+INSERT INTO APPLIED_PERIOD (APPLIED_PERIOD_ID, APPLIED_PERIOD_StartDate, APPLIED_PERIOD_EndDate, PRICE_RATE_ID, ROOM_TYPE_ID) VALUES
+    ('APD0000001', '2026-01-01', '2026-12-31', 'PRC0000001', 'RTP0000001');
+
+-- ===========================================================
+-- 5) LỊCH SỬ HẠNG KHÁCH HÀNG & LỊCH LÀM VIỆC (GIỮ NGUYÊN BẢN GỐC CỦA BẠN)
+-- ===========================================================
+INSERT INTO TIER_HISTORY (TIER_HISTORY_ID, TIER_HISTORY_StartDate, TIER_HISTORY_TotalSpending, TIER_HISTORY_Reason, USER_ID, TIER_CUS_ID) VALUES
+    ('THI0000001', '2026-02-01', 1700000, 'Lên hạng Đồng', 'USR0000009', 'TCR0000001'), ('THI0000002', '2026-02-01', 6900000, 'Lên hạng Bạc', 'USR0000010', 'TCR0000002');
+INSERT INTO WORK_SCHEDULE (WORK_SCHEDULE_ID, WORK_SCHEDULE_Date, WORK_SCHEDULE_Shift) VALUES ('WKS0000001', '2026-02-10', 'MORNING');
+INSERT INTO WORK_ASSIGNMENT (WORK_ASSIGNMENT_ID, WORK_ASSIGNMENT_AssignedAt, WORK_ASSIGNMENT_EndAt, USER_ID, WORK_SCHEDULE_ID) VALUES ('WAT0000001', '2026-02-10 05:45:00', '2026-02-10 12:05:00', 'USR0000006', 'WKS0000001');
+INSERT INTO HISTORY_WORK (HISTORY_WORK_ID, HISTORY_WORK_CheckinTime, HISTORY_WORK_CheckoutTime, HISTORY_WORK_Status, USER_ID, WORK_SCHEDULE_ID) VALUES ('HWK0000001', '2026-02-10 06:01:00', '2026-02-10 11:58:00', 'COMPLETED', 'USR0000006', 'WKS0000001');
+
+-- ===========================================================
+-- 6) GIAO DỊCH 12 THÁNG 2026 (RENTAL, RENTAL_DETAIL, BILL, PAYMENT, SERVICE)
+-- Bơm phồng mỗi tháng để biểu đồ lên xuống cực đẹp!
+-- ===========================================================
+
+-- ----------------- THÁNG 1 -----------------
+INSERT INTO RENTAL (RENTAL_ID, RENTAL_RentDate, RENTAL_IsBooking, RENTAL_Status, CUSTOMER_ID) VALUES 
+    ('REN260101', '2026-01-05 14:00:00', TRUE, 'COMPLETED', 'USR0000009'), 
+    ('REN260102', '2026-01-15 14:00:00', TRUE, 'COMPLETED', 'USR0000014');
+INSERT INTO RENTAL_DETAIL (RENTAL_DETAIL_ID, RENTAL_DETAIL_CheckinDate, RENTAL_DETAIL_LengthOfStay, RENTAL_DETAIL_AdultCount, RENTAL_DETAIL_ChildrenCount, RENTAL_DETAIL_UnitPrice, RENTAL_ID, ROOM_ID) VALUES 
+    ('RDT260101', '2026-01-05 14:00:00', 3, 2, 0, 180000, 'REN260101', 'ROM0000001'), 
+    ('RDT260102', '2026-01-15 14:00:00', 2, 4, 1, 950000, 'REN260102', 'ROM0000013');
+INSERT INTO BILL (BILL_ID, BILL_CreateDate, BILL_TotalAmount, BILL_Type, RENTAL_ID) VALUES 
+    ('BIL260101D', '2026-01-01', 200000, 'DEPOSIT', 'REN260101'), ('BIL260101F', '2026-01-08', 540000, 'FINAL', 'REN260101'),
+    ('BIL260102D', '2026-01-10', 500000, 'DEPOSIT', 'REN260102'), ('BIL260102F', '2026-01-17', 1900000, 'FINAL', 'REN260102');
+INSERT INTO PAYMENT (PAYMENT_ID, PAYMENT_Method, PAYMENT_Date, PAYMENT_Transaction, BILL_ID) VALUES 
+    ('PAY260101D', 'BANK', '2026-01-01', 'GD1', 'BIL260101D'), ('PAY260101F', 'CASH', '2026-01-08', 'GD2', 'BIL260101F'),
+    ('PAY260102D', 'BANK', '2026-01-10', 'GD3', 'BIL260102D'), ('PAY260102F', 'CASH', '2026-01-17', 'GD4', 'BIL260102F');
+INSERT INTO SERVICE_USAGE (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_Time, SERVICE_USAGE_UnitPrice, RENTAL_DETAIL_ID, SERVICE_ID) VALUES 
+    ('SVG260101', 2, '2026-01-06 08:00:00', 90000, 'RDT260101', 'SER0000002'), 
+    ('SVG260102', 4, '2026-01-16 08:00:00', 90000, 'RDT260102', 'SER0000002');
+
+-- ----------------- THÁNG 2 (Tết đông khách) -----------------
+INSERT INTO RENTAL (RENTAL_ID, RENTAL_RentDate, RENTAL_IsBooking, RENTAL_Status, CUSTOMER_ID) VALUES 
+    ('REN260201', '2026-02-12 14:00:00', TRUE, 'COMPLETED', 'USR0000010'), 
+    ('REN260202', '2026-02-14 14:00:00', TRUE, 'COMPLETED', 'USR0000015'),
+    ('REN260203', '2026-02-20 14:00:00', TRUE, 'COMPLETED', 'USR0000018');
+INSERT INTO RENTAL_DETAIL (RENTAL_DETAIL_ID, RENTAL_DETAIL_CheckinDate, RENTAL_DETAIL_LengthOfStay, RENTAL_DETAIL_AdultCount, RENTAL_DETAIL_ChildrenCount, RENTAL_DETAIL_UnitPrice, RENTAL_ID, ROOM_ID) VALUES 
+    ('RDT260201', '2026-02-12 14:00:00', 5, 2, 0, 380000, 'REN260201', 'ROM0000007'), 
+    ('RDT260202', '2026-02-14 14:00:00', 3, 2, 2, 650000, 'REN260202', 'ROM0000011'),
+    ('RDT260203', '2026-02-20 14:00:00', 2, 6, 0, 2500000, 'REN260203', 'ROM0000015');
+INSERT INTO BILL (BILL_ID, BILL_CreateDate, BILL_TotalAmount, BILL_Type, RENTAL_ID) VALUES 
+    ('BIL260201F', '2026-02-17', 2000000, 'FINAL', 'REN260201'), 
+    ('BIL260202F', '2026-02-17', 2500000, 'FINAL', 'REN260202'),
+    ('BIL260203F', '2026-02-22', 5500000, 'FINAL', 'REN260203');
+INSERT INTO PAYMENT (PAYMENT_ID, PAYMENT_Method, PAYMENT_Date, PAYMENT_Transaction, BILL_ID) VALUES 
+    ('PAY260201F', 'BANK', '2026-02-17', 'GD5', 'BIL260201F'), 
+    ('PAY260202F', 'BANK', '2026-02-17', 'GD6', 'BIL260202F'),
+    ('PAY260203F', 'BANK', '2026-02-22', 'GD7', 'BIL260203F');
+INSERT INTO SERVICE_USAGE (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_Time, SERVICE_USAGE_UnitPrice, RENTAL_DETAIL_ID, SERVICE_ID) VALUES 
+    ('SVG260201', 2, '2026-02-13 08:00:00', 90000, 'RDT260201', 'SER0000002'), 
+    ('SVG260202', 1, '2026-02-14 10:00:00', 250000, 'RDT260202', 'SER0000004'),
+    ('SVG260203', 6, '2026-02-21 08:00:00', 90000, 'RDT260203', 'SER0000002');
+
+-- ----------------- THÁNG 3 ĐẾN THÁNG 12 (Data trải dài) -----------------
+INSERT INTO RENTAL (RENTAL_ID, RENTAL_RentDate, RENTAL_IsBooking, RENTAL_Status, CUSTOMER_ID) VALUES 
+    ('REN260301', '2026-03-10 14:00:00', TRUE, 'COMPLETED', 'USR0000011'), ('REN260401', '2026-04-28 14:00:00', TRUE, 'COMPLETED', 'USR0000012'),
+    ('REN260501', '2026-05-15 14:00:00', TRUE, 'COMPLETED', 'USR0000016'), ('REN260601', '2026-06-20 14:00:00', TRUE, 'COMPLETED', 'USR0000017'),
+    ('REN260701', '2026-07-05 14:00:00', TRUE, 'COMPLETED', 'USR0000013'), ('REN260801', '2026-08-10 14:00:00', TRUE, 'COMPLETED', 'USR0000018'),
+    ('REN260901', '2026-09-12 14:00:00', TRUE, 'COMPLETED', 'USR0000009'), ('REN261001', '2026-10-18 14:00:00', TRUE, 'COMPLETED', 'USR0000010'),
+    ('REN261101', '2026-11-22 14:00:00', TRUE, 'COMPLETED', 'USR0000014'), ('REN261201', '2026-12-24 14:00:00', TRUE, 'COMPLETED', 'USR0000015');
+
+INSERT INTO RENTAL_DETAIL (RENTAL_DETAIL_ID, RENTAL_DETAIL_CheckinDate, RENTAL_DETAIL_LengthOfStay, RENTAL_DETAIL_AdultCount, RENTAL_DETAIL_ChildrenCount, RENTAL_DETAIL_UnitPrice, RENTAL_ID, ROOM_ID) VALUES 
+    ('RDT260301', '2026-03-10 14:00:00', 2, 2, 0, 260000, 'REN260301', 'ROM0000004'), ('RDT260401', '2026-04-28 14:00:00', 4, 4, 2, 950000, 'REN260401', 'ROM0000014'),
+    ('RDT260501', '2026-05-15 14:00:00', 1, 2, 0, 180000, 'REN260501', 'ROM0000002'), ('RDT260601', '2026-06-20 14:00:00', 3, 2, 1, 380000, 'REN260601', 'ROM0000008'),
+    ('RDT260701', '2026-07-05 14:00:00', 5, 2, 0, 650000, 'REN260701', 'ROM0000010'), ('RDT260801', '2026-08-10 14:00:00', 2, 6, 2, 2500000, 'REN260801', 'ROM0000016'),
+    ('RDT260901', '2026-09-12 14:00:00', 2, 2, 0, 260000, 'REN260901', 'ROM0000005'), ('RDT261001', '2026-10-18 14:00:00', 1, 2, 0, 180000, 'REN261001', 'ROM0000003'),
+    ('RDT261101', '2026-11-22 14:00:00', 3, 2, 0, 380000, 'REN261101', 'ROM0000009'), ('RDT261201', '2026-12-24 14:00:00', 4, 4, 4, 950000, 'REN261201', 'ROM0000013');
+
+INSERT INTO BILL (BILL_ID, BILL_CreateDate, BILL_TotalAmount, BILL_Type, RENTAL_ID) VALUES 
+    ('BIL260301F', '2026-03-12', 620000, 'FINAL', 'REN260301'), ('BIL260401F', '2026-05-02', 4100000, 'FINAL', 'REN260401'),
+    ('BIL260501F', '2026-05-16', 220000, 'FINAL', 'REN260501'), ('BIL260601F', '2026-06-23', 1350000, 'FINAL', 'REN260601'),
+    ('BIL260701F', '2026-07-10', 3450000, 'FINAL', 'REN260701'), ('BIL260801F', '2026-08-12', 5800000, 'FINAL', 'REN260801'),
+    ('BIL260901F', '2026-09-14', 650000, 'FINAL', 'REN260901'), ('BIL261001F', '2026-10-19', 280000, 'FINAL', 'REN261001'),
+    ('BIL261101F', '2026-11-25', 1350000, 'FINAL', 'REN261101'), ('BIL261201F', '2026-12-28', 4300000, 'FINAL', 'REN261201');
+
+INSERT INTO PAYMENT (PAYMENT_ID, PAYMENT_Method, PAYMENT_Date, PAYMENT_Transaction, BILL_ID) VALUES 
+    ('PAY260301F', 'BANK', '2026-03-12', 'GD8', 'BIL260301F'), ('PAY260401F', 'BANK', '2026-05-02', 'GD9', 'BIL260401F'),
+    ('PAY260501F', 'CASH', '2026-05-16', 'GD10', 'BIL260501F'), ('PAY260601F', 'BANK', '2026-06-23', 'GD11', 'BIL260601F'),
+    ('PAY260701F', 'BANK', '2026-07-10', 'GD12', 'BIL260701F'), ('PAY260801F', 'BANK', '2026-08-12', 'GD13', 'BIL260801F'),
+    ('PAY260901F', 'CASH', '2026-09-14', 'GD14', 'BIL260901F'), ('PAY261001F', 'CASH', '2026-10-19', 'GD15', 'BIL261001F'),
+    ('PAY261101F', 'BANK', '2026-11-25', 'GD16', 'BIL261101F'), ('PAY261201F', 'BANK', '2026-12-28', 'GD17', 'BIL261201F');
+
+INSERT INTO SERVICE_USAGE (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_Time, SERVICE_USAGE_UnitPrice, RENTAL_DETAIL_ID, SERVICE_ID) VALUES 
+    ('SVG260301', 2, '2026-03-11 08:00:00', 90000, 'RDT260301', 'SER0000002'), 
+    ('SVG260401', 4, '2026-04-29 08:00:00', 90000, 'RDT260401', 'SER0000002'),
+    ('SVG260501', 2, '2026-05-15 20:00:00', 10000, 'RDT260501', 'SER0000001'), 
+    ('SVG260601', 1, '2026-06-21 10:00:00', 60000, 'RDT260601', 'SER0000003'),
+    ('SVG260701', 1, '2026-07-05 12:00:00', 250000, 'RDT260701', 'SER0000004'), 
+    ('SVG260801', 6, '2026-08-11 08:00:00', 90000, 'RDT260801', 'SER0000002'),
+    ('SVG260901', 2, '2026-09-13 08:00:00', 90000, 'RDT260901', 'SER0000002'), 
+    ('SVG261001', 4, '2026-10-18 22:00:00', 10000, 'RDT261001', 'SER0000001'),
+    ('SVG261101', 1, '2026-11-24 15:00:00', 60000, 'RDT261101', 'SER0000003'), 
+    ('SVG261201', 4, '2026-12-25 08:00:00', 90000, 'RDT261201', 'SER0000002');
+
+-- -----------------------------------------------------------
+-- 7) ĐÁNH GIÁ (REVIEW) VÀ SỰ CỐ (INCIDENT)
+-- -----------------------------------------------------------
+INSERT INTO REVIEW (REVIEW_ID, REVIEW_Rate, REVIEW_Description, REVIEW_UpdateDate, USER_ID) VALUES
+    ('REV0000001', 5, 'Phòng sạch sẽ, thủ tục nhanh.', '2026-02-06 10:00:00', 'USR0000009'),
+    ('REV0000002', 4, 'Trải nghiệm tốt, phòng yên tĩnh.', '2026-02-08 13:00:00', 'USR0000010');
+
+INSERT INTO INCIDENT (INCIDENT_ID, INCIDENT_Name, INCIDENT_OccurTime, INCIDENT_Description, INCIDENT_Responsible, INCIDENT_Money, INCIDENT_Handle, INCIDENT_Status, RENTAL_DETAIL_ID, CREATED_BY) VALUES 
+    ('ICD0000001', 'Hỏng máy sấy tóc', '2026-02-06 14:30:00', 'Khách làm rơi', 'CUSTOMER', 350000, 'Đền tiền', 'RESOLVED', 'RDT260101', 'USR0000006');
+
+COMMIT;

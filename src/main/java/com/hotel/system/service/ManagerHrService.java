@@ -125,14 +125,16 @@ public class ManagerHrService {
 
         hw.setCheckoutTime(now);
         hw.setStatus(AttendanceStatus.COMPLETED);
+        
+        // --- LOGIC TỰ ĐỘNG TÍNH TĂNG CA (OVERTIME) ---
+        long overtimeMinutes = java.time.temporal.ChronoUnit.MINUTES.between(window.end(), now);
+        if (overtimeMinutes > 30) { // Làm lố hơn 30 phút mới tính là tăng ca
+            // Làm tròn 1 chữ số thập phân (VD: 1.5 giờ)
+            double otHours = Math.round((overtimeMinutes / 60.0) * 10.0) / 10.0;
+            hw.setOvertimeHours(otHours);
+        }
+        
         historyWorkRepository.save(hw);
-
-        workAssignmentRepository.findByStaffIdAndWorkScheduleId(staffId, scheduleId).ifPresent(a -> {
-            if (a.getEndAt() == null) {
-                a.setEndAt(now);
-                workAssignmentRepository.save(a);
-            }
-        });
     }
 
     @Transactional
@@ -209,7 +211,19 @@ public class ManagerHrService {
         for (WorkSchedule schedule : schedules) {
             List<StaffMiniView> staffMiniViews = assignmentsByScheduleId.getOrDefault(schedule.getId(), List.of()).stream()
                     .filter(a -> a.getEndAt() == null && a.getStaff() != null)
-                    .map(a -> new StaffMiniView(a.getId(), a.getStaff().getId(), shortNameOf(a.getStaff()), fullNameOf(a.getStaff()), a.getNote()))
+                    .map(a -> {
+                        // LOGIC LẤY TRẠNG THÁI CHẤM CÔNG GẮN VÀO DASHBOARD
+                        HistoryWork hw = historyWorkRepository.findByStaffIdAndWorkScheduleId(a.getStaff().getId(), schedule.getId()).orElse(null);
+                        AttendanceStatus status = hw != null ? hw.getStatus() : AttendanceStatus.NOT_ATTENDED;
+                        String badgeClass = switch (status) {
+                            case CHECKED_IN -> "badge bg-success text-white";
+                            case COMPLETED -> "badge bg-primary text-white";
+                            case MISSED -> "badge bg-danger text-white";
+                            default -> "badge bg-secondary text-white";
+                        };
+                        // Đã truyền đủ 7 tham số
+                        return new StaffMiniView(a.getId(), a.getStaff().getId(), shortNameOf(a.getStaff()), fullNameOf(a.getStaff()), a.getNote(), status.getDisplayName(), badgeClass);
+                    })
                     .toList();
 
             ScheduleWindow window = resolveWindow(schedule.getDate(), schedule.getShift());
@@ -362,8 +376,14 @@ public class ManagerHrService {
     }
 
     public LocalDate parseSelectedDate(String selectedDate, YearMonth fallbackMonth) {
-        try { if (selectedDate != null && !selectedDate.isBlank()) return LocalDate.parse(selectedDate); } 
-        catch (Exception ignored) {}
+        try { 
+            if (selectedDate != null && !selectedDate.isBlank()) return LocalDate.parse(selectedDate); 
+        } catch (Exception ignored) {}
+        
+        // NẾU LÀ THÁNG HIỆN TẠI -> LẤY NGÀY HÔM NAY (Thời gian thực). KHÁC THÁNG -> LẤY NGÀY 1
+        if (fallbackMonth.equals(YearMonth.now())) {
+            return LocalDate.now();
+        }
         return fallbackMonth.atDay(1);
     }
 
@@ -391,7 +411,7 @@ public class ManagerHrService {
 
     // 4. VIEW RECORDS (DTOs for Thymeleaf)
     private record ScheduleWindow(LocalDateTime start, LocalDateTime end) {}
-    public record StaffMiniView(String assignmentId, String staffId, String shortName, String fullName, String note) {}
+    public record StaffMiniView(String assignmentId, String staffId, String shortName, String fullName, String note, String statusText, String statusClass) {}
     public record ScheduleSummaryView(String scheduleId, Shift shift, String shiftName, String startTimeText, String rangeText, List<StaffMiniView> staffs, String badgeClass, boolean today) {}
     public record CalendarDayView(String value, String dayNumber, boolean today, boolean selected, boolean inCurrentMonth, boolean hasSchedule, List<ScheduleSummaryView> schedules, String dayName) {}
     public record AttendanceRowView(String staffId, String staffName, String email, AttendanceStatus status, String statusText, String checkinText, String checkoutText, boolean canCheckin, boolean canCheckout, Double overtimeHours, String note) {}

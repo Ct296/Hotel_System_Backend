@@ -18,6 +18,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -35,6 +36,8 @@ public class ManagerHrController {
     private final ManagerRepository managerRepository;
     private final ManagerHrService managerHrService;
     private final AdminAccountService adminAccountService;
+    private final AccountRepository accountRepository;
+    private final AccountStatusRepository accountStatusRepository;
 
     private boolean hasHrAccess() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -206,5 +209,97 @@ public class ManagerHrController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @GetMapping("/staffs")
+    public ResponseEntity<?> getAllStaffs() {
+        if (!hasHrAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
+        // Chỉ lấy user có Role là STAFF
+        List<Users> staffs = usersRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.STAFF)
+                .toList();
+
+        List<Map<String, Object>> response = new ArrayList<>();
+        for (Users u : staffs) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", u.getId());
+            map.put("fullName", u.getLastName() + " " + u.getFirstName());
+            map.put("email", u.getEmail());
+            map.put("phone", u.getPhoneNumber());
+            map.put("gender", u.getSex() != null ? u.getSex().name() : "UNSPECIFIED");
+            
+            Staff staffInfo = staffRepository.findById(u.getId()).orElse(null);
+            if (staffInfo != null) {
+                map.put("workingStatus", staffInfo.getWorkingStatus().name());
+                map.put("employmentTime", staffInfo.getEmploymentTime());
+            } else {
+                map.put("workingStatus", "UNKNOWN");
+            }
+
+            // Lấy trạng thái khóa/mở của tài khoản (Sử dụng findByUser_Id)
+            List<AccountStatus> statuses = accountStatusRepository.findByAccount_User_IdOrderByStartTimeDesc(u.getId());
+            map.put("accountStatus", statuses.isEmpty() ? "UNKNOWN" : statuses.get(0).getName().toString());
+            
+            response.add(map);
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/staffs")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<?> createStaff(@RequestBody Map<String, String> payload) {
+        if (!hasHrAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
+        String email = payload.get("email");
+        if (usersRepository.findByEmail(email).isPresent()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email đã tồn tại trong hệ thống."));
+        }
+
+        // 1. Tạo USER (Mặc định Role STAFF)
+        Users newUser = new Users();
+        String newUserId = com.hotel.system.util.AppUtils.generateId("USR", 10);
+        newUser.setId(newUserId);
+        newUser.setFirstName(payload.get("firstName"));
+        newUser.setLastName(payload.get("lastName"));
+        newUser.setEmail(email);
+        newUser.setPhoneNumber(payload.get("phone"));
+        newUser.setRole(Role.STAFF); 
+        newUser.setCreateDate(LocalDateTime.now());
+        newUser.setUpdateDate(LocalDateTime.now());
+        if (payload.containsKey("gender")) newUser.setSex(com.hotel.system.entity.enums.Gender.valueOf(payload.get("gender")));
+        if (payload.containsKey("dob") && !payload.get("dob").isBlank()) newUser.setDateOfBirth(LocalDate.parse(payload.get("dob")));
+        usersRepository.save(newUser);
+
+        // 2. Tạo STAFF
+        Staff staff = new Staff();
+        staff.setId(newUserId);
+        staff.setEmploymentTime(LocalDateTime.now());
+        staff.setWorkingStatus(WorkingStatus.WORKING);
+        staffRepository.save(staff);
+
+        // 3. Tạo ACCOUNT (Truyền Object Users vào thay vì ID chuỗi)
+        Account account = new Account();
+        account.setUser(newUser); // Liên kết với Users
+        account.setPassword(payload.get("password"));
+        // Lưu xong thì gán ngược lại biến account để bên dưới xài
+        account = accountRepository.save(account); 
+
+        // 4. Kích hoạt trạng thái ACTIVE
+        AccountStatus accStatus = new AccountStatus();
+        accStatus.setId(com.hotel.system.util.AppUtils.generateId("AST", 10));
+        
+        // CHỖ NÀY ĐÃ SỬA: Truyền đúng biến 'account' vào vì nó @ManyToOne với Account
+        accStatus.setAccount(account); 
+        
+        // CHỖ NÀY ĐÃ SỬA: Dùng đúng tên Enum AccountState của bạn
+        accStatus.setName(com.hotel.system.entity.enums.AccountState.ACTIVE); 
+        
+        accStatus.setStartTime(LocalDateTime.now());
+        accStatus.setReason("Tạo tài khoản nhân viên mới");
+        accountStatusRepository.save(accStatus);
+
+        return ResponseEntity.ok(Map.of("message", "Thêm nhân viên thành công!"));
     }
 }

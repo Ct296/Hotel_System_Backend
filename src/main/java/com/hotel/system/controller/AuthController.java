@@ -36,6 +36,7 @@ public class AuthController {
     private final AccountStatusRepository accountStatusRepository;
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final com.hotel.system.repository.ManagerRepository managerRepository;
 
     @Data
     public static class LoginRequest {
@@ -45,6 +46,7 @@ public class AuthController {
         private boolean isEmployee; 
     }
 
+    // 1. ĐĂNG NHẬP (Chung cho Khách và Nhân viên)
     // 1. ĐĂNG NHẬP (Chung cho Khách và Nhân viên)
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest) {
@@ -99,16 +101,25 @@ public class AuthController {
                 .build();
         String token = jwtTokenProvider.generateToken(userDetails);
 
+        // Đóng gói thông tin User để trả về Frontend
+        Map<String, Object> userMap = new HashMap<>();
+        userMap.put("id", user.getId());
+        userMap.put("email", user.getEmail());
+        userMap.put("fullName", user.getLastName() + " " + user.getFirstName());
+        userMap.put("avatar", user.getAvatar() != null ? user.getAvatar() : "");
+
+        // TỰ ĐỘNG LẤY CHỨC DANH NẾU LÀ MANAGER
+        if (roleName.equals("MANAGER")) {
+            managerRepository.findById(user.getId()).ifPresent(manager -> {
+                userMap.put("title", manager.getTitle().name());
+            });
+        }
+
         // Trả về JSON cho Vue lưu vào LocalStorage/Cookie
         Map<String, Object> response = new HashMap<>();
         response.put("token", token);
         response.put("role", roleName);
-        response.put("user", Map.of(
-            "id", user.getId(),
-            "email", user.getEmail(),
-            "fullName", user.getLastName() + " " + user.getFirstName(),
-            "avatar", user.getAvatar() != null ? user.getAvatar() : ""
-        ));
+        response.put("user", userMap);
 
         return ResponseEntity.ok(response);
     }

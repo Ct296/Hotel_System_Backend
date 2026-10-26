@@ -41,9 +41,10 @@ public class ManagerOperationController {
     private final ManagerRepository managerRepository;
     private final MediaStorageService mediaStorageService;
     private final ManagerOperationService managerOperationService;
-    
-    // Inject Repository mới tạo
     private final RoomAmenityRepository roomAmenityRepository;
+    private final BillRepository billRepository;
+    private final RentalDetailRepository rentalDetailRepository;
+    private final IncidentRepository incidentRepository;
 
     private boolean hasOperationAccess() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -452,5 +453,210 @@ public class ManagerOperationController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", "Không thể xóa tiện ích đang được gán cho phòng."));
         }
+    }
+
+    @GetMapping("/dashboard-stats")
+    public ResponseEntity<?> getDashboardStats() {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
+        Map<String, Object> stats = new HashMap<>();
+
+        // 1. TRẠNG THÁI PHÒNG
+        List<Room> allRooms = roomRepository.findAll();
+        long available = allRooms.stream().filter(r -> "AVAILABLE".equals(r.getStatus().name())).count();
+        long occupied = allRooms.stream().filter(r -> "OCCUPIED".equals(r.getStatus().name())).count();
+        long cleaning = allRooms.stream().filter(r -> "CLEANING".equals(r.getStatus().name())).count();
+        long maintenance = allRooms.stream().filter(r -> "MAINTENANCE".equals(r.getStatus().name())).count();
+        stats.put("roomStatusCounts", Arrays.asList(available, occupied, cleaning, maintenance));
+
+        // 2. THẺ KPI 
+        long totalRooms = allRooms.size();
+        long occupancyRate = totalRooms > 0 ? (occupied * 100) / totalRooms : 0;
+        
+        Double todayRevenue = billRepository.calculateTodayRevenue();
+        Long arrivals = rentalDetailRepository.countTodayArrivals();
+        Long departures = rentalDetailRepository.countTodayDepartures();
+
+        stats.put("kpi", Map.of(
+            "occupancyRate", occupancyRate,
+            "todayRevenue", todayRevenue != null ? todayRevenue : 0,
+            "arrivals", arrivals != null ? arrivals : 0,
+            "departures", departures != null ? departures : 0,
+            "maintenanceRooms", maintenance
+        ));
+
+        // 3. LỊCH TRÌNH HÔM NAY 
+        List<RentalDetail> tasks = rentalDetailRepository.findTodayTasks();
+        List<Map<String, Object>> todayTasks = new ArrayList<>();
+        java.time.LocalDate today = java.time.LocalDate.now();
+        
+        for (RentalDetail rd : tasks) {
+            if (rd.getCheckinDate() == null) continue;
+            java.time.LocalDate checkInDate = rd.getCheckinDate().toLocalDate();
+            
+            boolean isCheckIn = checkInDate.isEqual(today);
+            
+            todayTasks.add(Map.of(
+                "id", rd.getId(),
+                "customerName", rd.getRental().getCustomer().getId(),
+                "roomName", rd.getRoom().getId(), 
+                "type", isCheckIn ? "CHECK_IN" : "CHECK_OUT",
+                "time", isCheckIn ? rd.getCheckinDate().toLocalTime().toString() : rd.getCheckinDate().plusDays(rd.getLengthOfStay() != null ? rd.getLengthOfStay() : 1).toLocalTime().toString(),
+                "status", rd.getStatus().name()
+            ));
+        }
+        stats.put("todayTasks", todayTasks);
+
+        // 4. TOP 5 DỊCH VỤ 
+        List<Object[]> top5Query = serviceUsageRepository.getTop5ServicesThisMonth(org.springframework.data.domain.PageRequest.of(0, 5));
+        List<Map<String, Object>> topServices = new ArrayList<>();
+        for (Object[] row : top5Query) {
+            topServices.add(Map.of("name", row[0], "sold", row[1], "revenue", row[2]));
+        }
+        stats.put("topServices", topServices);
+
+        // 5. BIỂU ĐỒ DOANH THU 12 THÁNG 
+        Map<String, List<Double>> monthlyRevenue = new HashMap<>();
+        int[] yearsToFetch = {2024, 2025, 2026};
+        for (int year : yearsToFetch) {
+            Double[] revArray = new Double[12];
+            java.util.Arrays.fill(revArray, 0.0);
+            List<Object[]> revData = billRepository.getMonthlyRevenueByYear(year);
+            for (Object[] row : revData) {
+                int month = ((Number) row[0]).intValue();
+                double amount = ((Number) row[1]).doubleValue();
+                revArray[month - 1] = amount;
+            }
+            monthlyRevenue.put(String.valueOf(year), java.util.Arrays.asList(revArray));
+        }
+        stats.put("monthlyRevenue", monthlyRevenue);
+
+        // 6. BIỂU ĐỒ DỊCH VỤ 12 THÁNG 
+        Map<String, Map<String, List<Long>>> monthlyServices = new HashMap<>();
+        List<Service> allServices = serviceRepository.findAll();
+        
+        for (int year : yearsToFetch) {
+            Map<String, List<Long>> yearServiceData = new HashMap<>();
+            
+            Long[] allSvcArray = new Long[12];
+            java.util.Arrays.fill(allSvcArray, 0L);
+            List<Object[]> allSvcData = serviceUsageRepository.getMonthlyAllServicesUsage(year);
+            for (Object[] row : allSvcData) {
+                int month = ((Number) row[0]).intValue();
+                long qty = ((Number) row[1]).longValue();
+                allSvcArray[month - 1] = qty;
+            }
+            yearServiceData.put("ALL", java.util.Arrays.asList(allSvcArray));
+
+            for (Service s : allServices) {
+                Long[] singleSvcArray = new Long[12];
+                java.util.Arrays.fill(singleSvcArray, 0L);
+                List<Object[]> singleSvcData = serviceUsageRepository.getMonthlyServiceUsage(s.getId(), year);
+                for (Object[] row : singleSvcData) {
+                    int month = ((Number) row[0]).intValue();
+                    long qty = ((Number) row[1]).longValue();
+                    singleSvcArray[month - 1] = qty;
+                }
+                yearServiceData.put(s.getId(), java.util.Arrays.asList(singleSvcArray));
+            }
+            monthlyServices.put(String.valueOf(year), yearServiceData);
+        }
+        stats.put("monthlyServices", monthlyServices);
+
+        return ResponseEntity.ok(stats);
+    }
+
+    // ==========================================
+    // API QUẢN LÝ SỰ CỐ (INCIDENT)
+    // ==========================================
+    @GetMapping("/incidents")
+    public ResponseEntity<?> getAllIncidents() {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        
+        List<Incident> incidents = incidentRepository.findAllByOrderByOccurTimeDesc();
+        List<Map<String, Object>> result = new ArrayList<>();
+        
+        for (Incident i : incidents) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", i.getId());
+            map.put("name", i.getName());
+            map.put("occurTime", i.getOccurTime());
+            map.put("description", i.getDescription());
+            map.put("responsible", i.getResponsible());
+            map.put("money", i.getMoney());
+            map.put("handle", i.getHandle());
+            map.put("status", i.getStatus());
+            
+            if (i.getRentalDetail() != null) {
+                map.put("rentalDetailId", i.getRentalDetail().getId());
+                if (i.getRentalDetail().getRoom() != null) {
+                    // Trả về số phòng đang gặp sự cố để Frontend hiển thị cho dễ nhìn
+                    map.put("roomName", i.getRentalDetail().getRoom().getName()); 
+                }
+            }
+            result.add(map);
+        }
+        
+        // Trả thêm danh sách RentalDetail (đang ở) để lúc thêm sự cố biết chọn phòng nào
+        List<RentalDetail> activeRentals = rentalDetailRepository.findAll().stream()
+                .filter(rd -> rd.getStatus() == null || 
+                              "IN_PROGRESS".equals(rd.getStatus().name()) || 
+                              "CHECKED_IN".equals(rd.getStatus().name())) 
+                .toList();
+        
+        List<Map<String, Object>> rentals = new ArrayList<>();
+        for (RentalDetail rd : activeRentals) {
+            if(rd.getRoom() != null) {
+                rentals.add(Map.of("id", rd.getId(), "roomName", rd.getRoom().getName()));
+            }
+        }
+        
+        return ResponseEntity.ok(Map.of("incidents", result, "activeRentals", rentals));
+    }
+
+    @PostMapping("/incidents")
+    @Transactional
+    public ResponseEntity<?> saveIncident(@RequestBody Map<String, Object> payload) {
+        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        
+        String id = (String) payload.get("id");
+        boolean isCreate = id == null || id.isBlank();
+        Incident incident = isCreate ? new Incident() : incidentRepository.findById(id).orElse(null);
+        
+        if (incident == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy sự cố"));
+
+        // THÊM LOGIC CHẶN SỬA PHIẾU ĐÃ GIẢI QUYẾT
+        if (!isCreate && incident.getStatus() != null && "RESOLVED".equals(incident.getStatus().toString())) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Không thể sửa phiếu sự cố đã giải quyết xong để đảm bảo lưu vết."));
+        }
+
+        if (isCreate) {
+            incident.setId(AppUtils.generateId("ICD", 10));
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth.getPrincipal() instanceof UserDetails userDetails) {
+                usersRepository.findByEmail(userDetails.getUsername()).ifPresent(incident::setCreatedBy);
+            }
+        }
+
+        incident.setName((String) payload.get("name"));
+        incident.setDescription((String) payload.get("description"));
+        incident.setOccurTime(LocalDateTime.parse(payload.get("occurTime").toString()));
+        incident.setResponsible((String) payload.get("responsible"));
+        
+        Object moneyObj = payload.get("money");
+        incident.setMoney(moneyObj != null && !moneyObj.toString().isBlank() ? Double.valueOf(moneyObj.toString()) : 0.0);
+        
+        incident.setHandle((String) payload.get("handle"));
+        
+        // Tùy DB của bạn dùng String hay Enum mà ép kiểu cho đúng
+        incident.setStatus(com.hotel.system.entity.enums.IncidentStatus.valueOf((String) payload.get("status"))); 
+        
+        String rentalDetailId = (String) payload.get("rentalDetailId");
+        if (rentalDetailId != null && !rentalDetailId.isBlank()) {
+            rentalDetailRepository.findById(rentalDetailId).ifPresent(incident::setRentalDetail);
+        }
+
+        incidentRepository.save(incident);
+        return ResponseEntity.ok(Map.of("message", isCreate ? "Tạo sự cố thành công!" : "Cập nhật sự cố thành công!"));
     }
 }

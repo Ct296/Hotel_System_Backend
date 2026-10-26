@@ -19,15 +19,16 @@ public class WebConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         // Cấu hình CORS cho phép VueJS gọi API
         registry.addMapping("/**")
-                .allowedOrigins("http://localhost:5173", "http://localhost:3000") // Các port thường dùng của Vue
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                // Đã thêm https://ithotel.ct296.id.vn vào danh sách
+                .allowedOrigins("http://localhost:5173", "http://localhost:3000", "https://ithotel.ct296.id.vn") 
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                 .allowedHeaders("*")
                 .allowCredentials(true);
     }
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // Chỉ giữ lại cấu hình phục vụ file upload (ví dụ: ảnh phòng, avatar)
+        // Giữ lại cấu hình phục vụ file upload (ví dụ: ảnh phòng, avatar)
         Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
         registry.addResourceHandler("/uploads/**")
                 .addResourceLocations("file:" + uploadPath.toString() + "/");
