@@ -8,6 +8,7 @@ public enum AttendanceStatus {
     NOT_ATTENDED("Chưa chấm công"),
     CHECKED_IN("Đã check-in"),
     COMPLETED("Đã hoàn thành ca"),
+    FORGOT_CHECKOUT("Quên check-out"),
     MISSED("Vắng ca");
 
     private final String displayName;

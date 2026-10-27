@@ -624,4 +624,15 @@ public class CustomerController {
     private String getDefaultRoomImagePath() {
         return "https://images.unsplash.com/photo-1611892440504-42a792e24d32?auto=format&fit=crop&w=900&q=80";
     }
+
+    @PostMapping("/api/customer/profile/sync-tier")
+    public ResponseEntity<?> syncMyTier() {
+        Users currentUser = getLoggedInCustomer();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        Customer customer = customerRepository.findById(currentUser.getId()).orElse(null);
+        if (customer != null) {
+            customerTierService.syncCustomerTierByBills(customer);
+        }
+        return ResponseEntity.ok(Map.of("message", "Dữ liệu hạng thẻ của bạn đã được làm mới!"));
+    }
 }

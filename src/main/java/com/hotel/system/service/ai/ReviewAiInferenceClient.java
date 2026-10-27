@@ -24,7 +24,7 @@ public class ReviewAiInferenceClient {
     private final boolean useBkai;
 
     public ReviewAiInferenceClient(
-            @Value("${ai.review.api.url:http://localhost:5000/api/analyze}") String apiUrl,
+            @Value("${ai.review.api.url:http://localhost:8000/api/analyze}") String apiUrl,
             @Value("${ai.review.python.model-dir:artifacts/models}") String modelDir,
             @Value("${ai.review.python.use-bkai:false}") boolean useBkai) {
         this.restTemplate = new RestTemplate();

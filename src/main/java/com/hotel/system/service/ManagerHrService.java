@@ -110,13 +110,14 @@ public class ManagerHrService {
         if (now.isBefore(window.end().minusMinutes(15))) {
             throw new IllegalArgumentException("Chưa tới giờ checkout.");
         }
-        if (now.isAfter(window.end().plusMinutes(15))) {
+        // Đổi từ 15 thành 60 phút và đổi thành lỗi FORGOT_CHECKOUT
+        if (now.isAfter(window.end().plusMinutes(60))) {
             HistoryWork hw = ensureHistoryWork(staff, schedule);
             if (hw.getCheckoutTime() == null) {
-                hw.setStatus(AttendanceStatus.MISSED);
+                hw.setStatus(AttendanceStatus.FORGOT_CHECKOUT);
                 historyWorkRepository.save(hw);
             }
-            throw new IllegalStateException("Ca đã qua giờ checkout. Hệ thống đã tự động ghi nhận.");
+            throw new IllegalStateException("Đã quá 60 phút kể từ khi hết ca. Hệ thống tự động ghi nhận: Quên Check-out.");
         }
 
         HistoryWork hw = ensureHistoryWork(staff, schedule);
@@ -219,6 +220,7 @@ public class ManagerHrService {
                             case CHECKED_IN -> "badge bg-success text-white";
                             case COMPLETED -> "badge bg-primary text-white";
                             case MISSED -> "badge bg-danger text-white";
+                            case FORGOT_CHECKOUT -> "badge bg-warning text-dark"; // MÀU VÀNG CẢNH BÁO
                             default -> "badge bg-secondary text-white";
                         };
                         // Đã truyền đủ 7 tham số
@@ -341,9 +343,15 @@ public class ManagerHrService {
         ScheduleWindow window = resolveWindow(schedule.getDate(), schedule.getShift());
         LocalDateTime now = LocalDateTime.now();
         if (checkin != null && checkout != null) return AttendanceStatus.COMPLETED;
-        if (checkin != null) return now.isAfter(window.end().plusMinutes(15)) ? AttendanceStatus.MISSED : AttendanceStatus.CHECKED_IN;
+        
+        // Đã check-in, nhưng quá hạn checkout 60 phút mà chưa quẹt thẻ ra
+        if (checkin != null) return now.isAfter(window.end().plusMinutes(60)) ? AttendanceStatus.FORGOT_CHECKOUT : AttendanceStatus.CHECKED_IN;
+        
         if (now.isBefore(window.start().minusMinutes(15))) return AttendanceStatus.NOT_STARTED;
+        
+        // Chưa check-in và đã quá giờ 15 phút -> Vắng ca
         if (now.isAfter(window.end().plusMinutes(15))) return AttendanceStatus.MISSED;
+        
         return AttendanceStatus.NOT_ATTENDED;
     }
 
@@ -416,6 +424,5 @@ public class ManagerHrService {
     public record CalendarDayView(String value, String dayNumber, boolean today, boolean selected, boolean inCurrentMonth, boolean hasSchedule, List<ScheduleSummaryView> schedules, String dayName) {}
     public record AttendanceRowView(String staffId, String staffName, String email, AttendanceStatus status, String statusText, String checkinText, String checkoutText, boolean canCheckin, boolean canCheckout, Double overtimeHours, String note) {}
     public record AttendanceScheduleView(String scheduleId, String dateText, String shiftName, String rangeText, List<AttendanceRowView> rows, long completedCount, long missedCount, boolean inPast) {}
-    
     
 }

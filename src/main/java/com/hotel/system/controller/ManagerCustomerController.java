@@ -4,6 +4,7 @@ import com.hotel.system.entity.*;
 import com.hotel.system.entity.enums.Role;
 import com.hotel.system.repository.*;
 import com.hotel.system.service.CustomerDashboardService;
+import com.hotel.system.service.CustomerTierService;
 import com.hotel.system.service.ai.ReviewAiExportService;
 import com.hotel.system.service.ai.ReviewAiDashboardService;
 import com.hotel.system.util.AppUtils;
@@ -15,6 +16,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import com.hotel.system.service.ai.ReviewAiInferenceClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,10 +34,13 @@ public class ManagerCustomerController {
     private final TierHistoryRepository tierHistoryRepository;
     private final ReviewRepository reviewRepository;
     private final UsersRepository usersRepository;
+    private final CustomerTierService customerTierService;
     private final ManagerRepository managerRepository;
     private final ReviewAiExportService reviewAiExportService;
     private final ReviewAiDashboardService reviewAiDashboardService;
     private final CustomerDashboardService customerDashboardService;
+    
+    private final ReviewAiInferenceClient reviewAiInferenceClient;
 
     private boolean hasCustomerAccess() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -141,6 +146,24 @@ public class ManagerCustomerController {
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", "Lỗi chạy AI export: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/ai/analyze-single")
+    public ResponseEntity<?> analyzeSingleReview(@RequestBody Map<String, String> payload) {
+        if (!hasCustomerAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        try {
+            String text = payload.getOrDefault("text", "");
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            java.util.Map response = restTemplate.postForObject(
+                    "http://localhost:8000/api/analyze", 
+                    java.util.Map.of("text", text), 
+                    java.util.Map.class
+            );
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("error", "Lỗi kết nối Server AI: " + e.getMessage()));
         }
     }
 }
