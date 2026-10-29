@@ -1,8 +1,10 @@
 package com.hotel.system.controller;
 
 import com.hotel.system.entity.*;
+import com.hotel.system.entity.enums.AccountState;
 import com.hotel.system.entity.enums.Role;
 import com.hotel.system.repository.*;
+import com.hotel.system.service.AdminAccountService;
 import com.hotel.system.service.CustomerDashboardService;
 import com.hotel.system.service.CustomerTierService;
 import com.hotel.system.service.ai.ReviewAiExportService;
@@ -20,9 +22,11 @@ import com.hotel.system.service.ai.ReviewAiInferenceClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/api/manager/customer")
@@ -39,8 +43,9 @@ public class ManagerCustomerController {
     private final ReviewAiExportService reviewAiExportService;
     private final ReviewAiDashboardService reviewAiDashboardService;
     private final CustomerDashboardService customerDashboardService;
-    
     private final ReviewAiInferenceClient reviewAiInferenceClient;
+    private final AdminAccountService adminAccountService;
+    private final AccountStatusRepository accountStatusRepository;
 
     private boolean hasCustomerAccess() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -56,6 +61,25 @@ public class ManagerCustomerController {
         return false;
     }
 
+    // Hàm Helper lấy trạng thái mới nhất
+    private AccountStatus getEffectiveLatestStatus(String userId) {
+        List<AccountStatus> statuses = accountStatusRepository.findAll()
+                .stream()
+                .filter(status -> status.getAccount() != null
+                        && status.getAccount().getId() != null
+                        && status.getAccount().getId().equals(userId))
+                .sorted(Comparator.comparing(AccountStatus::getStartTime))
+                .toList();
+        if (statuses.isEmpty()) return null;
+        AccountStatus latestStatus = statuses.get(statuses.size() - 1);
+        if (latestStatus.getName() == AccountState.LOCKED
+                && latestStatus.getEndTime() != null
+                && latestStatus.getEndTime().isBefore(LocalDateTime.now())) {
+            return null;
+        }
+        return latestStatus;
+    }
+
     @GetMapping("/dashboard")
     public ResponseEntity<?> dashboard() {
         if (!hasCustomerAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access Denied"));
@@ -67,6 +91,13 @@ public class ManagerCustomerController {
 
         Map<String, TierCustomer> currentTierByCustomerId = customerDashboardService.buildCurrentTierByCustomerId(customers);
         Map<String, Double> totalSpendingByCustomerId = customerDashboardService.buildTotalSpendingByCustomerId(customers);
+
+        Map<String, String> accountStatusByCustomerId = new HashMap<>();
+        for (Customer c : customers) {
+            AccountStatus effectiveStatus = getEffectiveLatestStatus(c.getId());
+            AccountState state = (effectiveStatus != null && effectiveStatus.getName() != null) ? effectiveStatus.getName() : AccountState.ACTIVE;
+            accountStatusByCustomerId.put(c.getId(), state.name());
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("customers", customers);
@@ -83,6 +114,7 @@ public class ManagerCustomerController {
         
         response.put("currentTierByCustomerId", currentTierByCustomerId);
         response.put("totalSpendingByCustomerId", totalSpendingByCustomerId);
+        response.put("accountStatusByCustomerId", accountStatusByCustomerId);
 
         ReviewAiDashboardService.ReviewAiDashboardSummary aiSummary = reviewAiDashboardService.buildSummary();
         response.put("aiSummary", aiSummary);
@@ -164,6 +196,41 @@ public class ManagerCustomerController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(java.util.Map.of("error", "Lỗi kết nối Server AI: " + e.getMessage()));
+        }
+    }
+
+    // 
+    @PutMapping("/{id}/toggle-lock")
+    public ResponseEntity<?> toggleCustomerLock(@PathVariable String id) {
+        if (!hasCustomerAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
+        try {
+            // Lấy thông tin User để kiểm tra quyền
+            Users targetUser = usersRepository.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài khoản."));
+
+            // Bắt buộc Role phải là CUSTOMER
+            if (targetUser.getRole() != Role.CUSTOMER) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", "Không có quyền thao tác! Bạn chỉ được phép khoá/mở khoá tài khoản Khách hàng."));
+            }
+
+            String userId = targetUser.getId();
+            
+            // Xử lý logic khoá/mở khoá
+            AccountStatus effectiveStatus = getEffectiveLatestStatus(userId);
+            boolean isCurrentlyLocked = effectiveStatus != null && effectiveStatus.getName() == AccountState.LOCKED;
+
+            if (isCurrentlyLocked) {
+                adminAccountService.unlockAccount(userId, "Manager Customer mở khoá");
+                return ResponseEntity.ok(Map.of("message", "Đã mở khoá tài khoản khách hàng."));
+            } else {
+                adminAccountService.lockAccount(userId, -1, "Manager Customer khoá");
+                return ResponseEntity.ok(Map.of("message", "Đã khoá tài khoản khách hàng."));
+            }
+            
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 }

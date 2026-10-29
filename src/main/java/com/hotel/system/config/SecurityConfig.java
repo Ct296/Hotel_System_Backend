@@ -38,8 +38,8 @@ public class SecurityConfig {
                 // 2. Mở cửa cho endpoint báo lỗi của Spring Boot (để hiện đúng 404 thay vì 403)
                 .requestMatchers("/error").permitAll()
                 
-                // 3. Các API công khai (đã thêm /api/kiosk/** vào đây)
-                .requestMatchers("/api/auth/**", "/api/public/**", "/uploads/**", "/api/kiosk/**").permitAll()
+                // 3. Các API công khai
+                .requestMatchers("/api/auth/**", "/api/public/**", "/uploads/**", "/image/**", "/api/kiosk/**").permitAll()
                 
                 // 4. Phân quyền API theo Role
                 .requestMatchers("/api/admin/**").hasAuthority("ADMIN")

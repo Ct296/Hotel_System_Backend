@@ -14,5 +14,5 @@ public class RoomTypeRequest {
     private Double basePrice;
     private Double depositPercent;
     private String description;
-    private List<String> amenityIds; // Dành cho tính năng gán tiện ích sau này
+    private List<String> amenityIds;
 }

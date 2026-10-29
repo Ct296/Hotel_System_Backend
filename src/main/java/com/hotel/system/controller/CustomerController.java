@@ -11,6 +11,7 @@ import com.hotel.system.service.*;
 import com.hotel.system.util.AppUtils;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -60,6 +61,10 @@ public class CustomerController {
     private final ProfileService profileService;
     private final RentalOperationService rentalOperationService;
     private final CustomerTierService customerTierService;
+
+    // ĐÃ SỬA: Lấy cấu hình URL từ application.properties
+    @Value("${payment.vnpay.frontend-return-url:http://localhost:5173/customer/profile}")
+    private String frontendReturnUrl;
 
     // DTOs & Records
     private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice) {}
@@ -299,7 +304,7 @@ public class CustomerController {
                             .billType(BillType.DEPOSIT)
                             .amount((long) Math.round(totalDepositAmount))
                             .orderInfo("Thanh toan coc booking " + rental.getId())
-                            .returnUrl("http://localhost:8080/api/public/vnpay-return") // URL Nhận Callback
+                            .returnUrl("http://localhost:8080/api/public/vnpay-return") // URL Nhận Callback Server-side
                             .ipAddress("127.0.0.1")
                             .createdAt(LocalDateTime.now())
                             .expiredAt(rental.getRentDate() == null ? LocalDateTime.now().plusMinutes(30) : rental.getRentDate().plusMinutes(30))
@@ -314,7 +319,8 @@ public class CustomerController {
     // VNPay Callback URL - Public
     @GetMapping("/api/public/vnpay-return")
     public void handleVnpayReturn(@RequestParam Map<String, String> params, HttpServletResponse response) throws IOException {
-        String frontendRedirectUrl = "http://localhost:5173/customer/profile"; // Thay bằng URL Vue thực tế
+        
+        String frontendRedirectUrl = this.frontendReturnUrl; 
 
         VnpayPaymentResult paymentResult = vnpayService.parsePaymentResult(params);
         String rentalId = paymentResult.getTxnRef();
