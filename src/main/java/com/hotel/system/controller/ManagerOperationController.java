@@ -334,36 +334,77 @@ public class ManagerOperationController {
     @Transactional
     public ResponseEntity<?> saveAppliedPeriod(@RequestBody Map<String, Object> payload) {
         if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        
         String appliedPeriodId = (String) payload.get("appliedPeriodId");
-        if (appliedPeriodId != null && !appliedPeriodId.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Kỳ áp dụng bị khóa chỉnh sửa."));
-        }
+        boolean isCreate = appliedPeriodId == null || appliedPeriodId.isBlank();
+
         try {
             LocalDateTime start = LocalDateTime.parse(payload.get("startDate").toString());
             LocalDateTime end = LocalDateTime.parse(payload.get("endDate").toString());
-            if (!end.isAfter(start)) throw new IllegalArgumentException();
             
-            AppliedPeriod ap = new AppliedPeriod();
-            ap.setId(AppUtils.generateId("APD", 10));
-            ap.setPriceRate(priceRateRepository.findById(payload.get("priceRateId").toString()).orElseThrow());
-            ap.setRoomType(roomTypeRepository.findById(payload.get("roomTypeId").toString()).orElseThrow());
+            if (!end.isAfter(start)) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Ngày kết thúc phải sau ngày bắt đầu."));
+            }
+            
+            String roomTypeId = payload.get("roomTypeId").toString();
+            String priceRateId = payload.get("priceRateId").toString();
+
+            AppliedPeriod ap;
+            if (isCreate) {
+                ap = new AppliedPeriod();
+                ap.setId(AppUtils.generateId("APD", 10));
+            } else {
+                ap = appliedPeriodRepository.findById(appliedPeriodId).orElse(null);
+                if (ap == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy kỳ áp dụng."));
+                
+                // Khóa sửa nếu kỳ áp dụng đã kết thúc trong quá khứ
+                if (ap.getEndDate() != null && ap.getEndDate().isBefore(LocalDateTime.now())) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Kỳ áp dụng đã kết thúc, không thể sửa."));
+                }
+            }
+            
+            // THUẬT TOÁN KIỂM TRA TRÙNG LỊCH (OVERLAP CHECK)
+            List<AppliedPeriod> existingPeriods = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(roomTypeId);
+            boolean isOverlapping = existingPeriods.stream().anyMatch(p -> {
+                if (p.getStartDate() == null || p.getEndDate() == null) return false;
+                if (!isCreate && p.getId().equals(appliedPeriodId)) return false; // Bỏ qua chính nó khi sửa
+                // Điều kiện trùng lịch: (Bắt đầu mới < Kết thúc cũ) VÀ (Kết thúc mới > Bắt đầu cũ)
+                return start.isBefore(p.getEndDate()) && end.isAfter(p.getStartDate());
+            });
+
+            if (isOverlapping) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Hạng phòng này đã có sự kiện giảm giá/phụ thu khác trong khung giờ này. Vui lòng chọn thời gian khác để tránh chồng chéo!"));
+            }
+            
+            ap.setPriceRate(priceRateRepository.findById(priceRateId).orElseThrow());
+            ap.setRoomType(roomTypeRepository.findById(roomTypeId).orElseThrow());
             ap.setStartDate(start);
             ap.setEndDate(end);
+            
             appliedPeriodRepository.save(ap);
-            return ResponseEntity.ok(Map.of("message", "Thêm kỳ áp dụng thành công."));
+            return ResponseEntity.ok(Map.of("message", isCreate ? "Thêm kỳ áp dụng thành công." : "Cập nhật kỳ áp dụng thành công."));
+            
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi lưu kỳ áp dụng."));
+            return ResponseEntity.badRequest().body(Map.of("error", "Dữ liệu không hợp lệ hoặc lỗi hệ thống."));
         }
     }
-
 
 
     @DeleteMapping("/applied-periods/{id}")
     @Transactional
     public ResponseEntity<?> deleteAppliedPeriod(@PathVariable String id) {
         if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        appliedPeriodRepository.findById(id).ifPresent(appliedPeriodRepository::delete);
-        return ResponseEntity.ok(Map.of("message", "Xóa kỳ áp dụng thành công."));
+        
+        AppliedPeriod ap = appliedPeriodRepository.findById(id).orElse(null);
+        if (ap != null) {
+            // Kiểm tra: Nếu kỳ áp dụng đã kết thúc trong quá khứ thì chặn xóa
+            if (ap.getEndDate() != null && ap.getEndDate().isBefore(LocalDateTime.now())) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Kỳ áp dụng đã kết thúc, không thể xóa để bảo toàn dữ liệu lịch sử."));
+            }
+            appliedPeriodRepository.delete(ap);
+            return ResponseEntity.ok(Map.of("message", "Hủy kỳ áp dụng thành công."));
+        }
+        return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy kỳ áp dụng."));
     }
 
     @PostMapping("/services")

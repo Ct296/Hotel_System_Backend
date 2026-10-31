@@ -62,12 +62,11 @@ public class CustomerController {
     private final RentalOperationService rentalOperationService;
     private final CustomerTierService customerTierService;
 
-    // ĐÃ SỬA: Lấy cấu hình URL từ application.properties
     @Value("${payment.vnpay.frontend-return-url:http://localhost:5173/customer/profile}")
     private String frontendReturnUrl;
 
-    // DTOs & Records
-    private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice) {}
+    // Đã fix: Thêm đầy đủ các trường để hiển thị giảm giá
+    private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice, String eventName, double surchargeAmount) {}
 
     public CustomerController(RoomTypeRepository roomTypeRepository, RoomRepository roomRepository,
                               RoomImageRepository roomImageRepository, CustomerRepository customerRepository,
@@ -107,10 +106,6 @@ public class CustomerController {
         }
         return null;
     }
-
-    // ==========================================
-    // CÁC API PUBLIC (KHÔNG CẦN ĐĂNG NHẬP)
-    // ==========================================
 
     @GetMapping("/api/public/home")
     public ResponseEntity<?> home() {
@@ -154,12 +149,27 @@ public class CustomerController {
                 .filter(room -> isRoomAvailable(room, searchCheckIn, searchCheckOut))
                 .map(room -> {
                     List<String> images = getRoomGalleryPaths(room);
-                    return new RoomCardView(room, resolveRoomUnitPrice(room, searchCheckIn),
-                        room.getRoomType() != null ? room.getRoomType().getName() : "",
-                        room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0);
+                    double basePrice = room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
+                                         
+                    AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(room.getRoomType().getId())
+                            .stream()
+                            .filter(p -> p.getStartDate() != null && p.getEndDate() != null)
+                            .filter(p -> !searchCheckIn.isBefore(p.getStartDate()) && !searchCheckIn.isAfter(p.getEndDate()))
+                            .findFirst()
+                            .orElse(null);
+                                                 
+                    double surcharge = (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null) 
+                             ? matchedPeriod.getPriceRate().getSurchargeAmount() : 0.0;
+                                         
+                    double actualSurchargeMoney = basePrice * (surcharge / 100.0);
+                                         
+                    String eventName = (matchedPeriod != null && matchedPeriod.getPriceRate() != null) 
+                             ? matchedPeriod.getPriceRate().getEventName() : null;
+                    return new RoomCardView(room, basePrice + actualSurchargeMoney, room.getRoomType() != null ? room.getRoomType().getName() : "", basePrice, eventName, actualSurchargeMoney);
                 })
                 .sorted(resolveRoomSort(sortBy)).toList();
 
+        // Đã fix lỗi khai báo List>
         List<Map<String, Object>> responseRooms = new ArrayList<>();
         for (RoomCardView view : roomCards) {
             Map<String, Object> r = new HashMap<>();
@@ -168,6 +178,11 @@ public class CustomerController {
             r.put("roomType", view.room().getRoomType());
             r.put("displayPrice", view.displayPrice());
             r.put("images", getRoomGalleryPaths(view.room()));
+                         
+            r.put("basePrice", view.basePrice());
+            r.put("eventName", view.eventName());
+            r.put("surchargeAmount", view.surchargeAmount());
+                         
             responseRooms.add(r);
         }
 
@@ -188,10 +203,6 @@ public class CustomerController {
     public ResponseEntity<?> getAllFeedback() {
         return ResponseEntity.ok(reviewRepository.findAllByOrderByUpdateDateDesc());
     }
-
-    // ==========================================
-    // CÁC API PROTECTED (CHỈ DÀNH CHO CUSTOMER)
-    // ==========================================
 
     @PostMapping("/api/customer/booking/calculate")
     public ResponseEntity<?> calculateBooking(@RequestBody Map<String, Object> payload) {
@@ -304,7 +315,7 @@ public class CustomerController {
                             .billType(BillType.DEPOSIT)
                             .amount((long) Math.round(totalDepositAmount))
                             .orderInfo("Thanh toan coc booking " + rental.getId())
-                            .returnUrl("http://localhost:8080/api/public/vnpay-return") // URL Nhận Callback Server-side
+                            .returnUrl("http://localhost:8080/api/public/vnpay-return")
                             .ipAddress("127.0.0.1")
                             .createdAt(LocalDateTime.now())
                             .expiredAt(rental.getRentDate() == null ? LocalDateTime.now().plusMinutes(30) : rental.getRentDate().plusMinutes(30))
@@ -316,7 +327,6 @@ public class CustomerController {
         }
     }
 
-    // VNPay Callback URL - Public
     @GetMapping("/api/public/vnpay-return")
     public void handleVnpayReturn(@RequestParam Map<String, String> params, HttpServletResponse response) throws IOException {
         
