@@ -1,5 +1,6 @@
 package com.hotel.system.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hotel.system.entity.enums.IncidentStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -39,6 +40,7 @@ public class Incident {
     private IncidentStatus status;
 
     @ManyToOne
+    @JsonIgnore
     @JoinColumn(name = "RENTAL_DETAIL_ID")
     private RentalDetail rentalDetail;
 

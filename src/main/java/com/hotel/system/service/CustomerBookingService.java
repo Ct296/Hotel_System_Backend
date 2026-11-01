@@ -91,33 +91,35 @@ public class CustomerBookingService {
     public double cancelBooking(String rentalId, String customerId) {
         Rental rental = rentalRepository.findById(rentalId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy booking."));
-
+                
         if (rental.getCustomer() == null || !rental.getCustomer().getId().equals(customerId)) {
             throw new IllegalArgumentException("Bạn không có quyền thao tác booking này.");
         }
+        
         if (!Boolean.TRUE.equals(rental.getIsBooking())) {
-            throw new IllegalArgumentException("Chỉ được hủy booking đặt trước.");
+            throw new IllegalArgumentException("Chỉ áp dụng cho booking đặt trước.");
         }
+        
+        // Chỉ cho phép hủy khi booking đang ở trạng thái PENDING (Chờ cọc) hoặc CONFIRMED (Đã cọc/Xác nhận)
         if (rental.getStatus() != RentalStatus.PENDING && rental.getStatus() != RentalStatus.CONFIRMED) {
-            throw new IllegalArgumentException("Booking này không còn hợp lệ để hủy.");
+            throw new IllegalArgumentException("Booking này không thể hủy do đang ở trạng thái không cho phép.");
         }
 
-        RentalDetail firstDetail = (rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty())
-                ? rental.getRentalDetails().get(0) : null;
-
-        if (firstDetail != null && firstDetail.getCheckinDate() != null && !firstDetail.getCheckinDate().isAfter(LocalDateTime.now())) {
-            throw new IllegalStateException("Không thể hủy booking khi đã tới giờ nhận phòng.");
-        }
-
+        // Lấy số tiền cọc đã thanh toán (nếu có)
         double depositPaid = billingService.calculateDepositPaid(rental.getId());
         boolean wasConfirmed = rental.getStatus() == RentalStatus.CONFIRMED;
-        
+                 
+        // Chuyển trạng thái hóa đơn và các phòng chi tiết sang Đã Hủy (CANCELLED)
         rental.setStatus(RentalStatus.CANCELLED);
-        for(RentalDetail detail : rental.getRentalDetails()) {
-            detail.setStatus(RentalDetailStatus.CANCELLED);
+        if (rental.getRentalDetails() != null) {
+            for(RentalDetail detail : rental.getRentalDetails()) {
+                detail.setStatus(RentalDetailStatus.CANCELLED);
+            }
         }
-        
+                 
         rentalRepository.save(rental);
+        
+        // Trả về số tiền cọc để hiển thị thông báo mất cọc, nếu chưa cọc thì trả về 0
         return wasConfirmed ? depositPaid : 0.0;
     }
 

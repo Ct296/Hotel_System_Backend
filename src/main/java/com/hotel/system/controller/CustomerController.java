@@ -65,8 +65,11 @@ public class CustomerController {
     @Value("${payment.vnpay.frontend-return-url:http://localhost:5173/customer/profile}")
     private String frontendReturnUrl;
 
-    // Đã fix: Thêm đầy đủ các trường để hiển thị giảm giá
+    // Record cho màn hình Rooms
     private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice, String eventName, double surchargeAmount) {}
+    
+    // Record cho màn hình Home
+    private record HomeRoomTypeView(RoomType roomType, double displayPrice, double basePrice, String eventName, double surchargeAmount) {}
 
     public CustomerController(RoomTypeRepository roomTypeRepository, RoomRepository roomRepository,
                               RoomImageRepository roomImageRepository, CustomerRepository customerRepository,
@@ -109,19 +112,61 @@ public class CustomerController {
 
     @GetMapping("/api/public/home")
     public ResponseEntity<?> home() {
-        List<RoomType> roomTypes = roomTypeRepository.findAll().stream().sorted(Comparator.comparing(RoomType::getName)).toList();
-        List<RoomType> roomTypesByPriceDesc = roomTypes.stream().sorted(Comparator.comparing(this::getSafeBasePrice).reversed()
-                        .thenComparing(RoomType::getName, Comparator.nullsLast(String::compareToIgnoreCase))).toList();
-        List<RoomType> roomTypesByPriceAsc = roomTypes.stream().sorted(Comparator.comparing(this::getSafeBasePrice)
-                        .thenComparing(RoomType::getName, Comparator.nullsLast(String::compareToIgnoreCase))).toList();
+        LocalDateTime now = LocalDateTime.now();
+        
+        List<HomeRoomTypeView> roomTypeViews = roomTypeRepository.findAll().stream()
+            .map(roomType -> {
+                double basePrice = getSafeBasePrice(roomType);
+                
+                AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(roomType.getId())
+                        .stream()
+                        .filter(p -> p.getStartDate() != null && p.getEndDate() != null)
+                        .filter(p -> !now.isBefore(p.getStartDate()) && !now.isAfter(p.getEndDate()))
+                        .findFirst()
+                        .orElse(null);
+                        
+                double surcharge = (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null) 
+                         ? matchedPeriod.getPriceRate().getSurchargeAmount() : 0.0;
+                                     
+                double actualSurchargeMoney = basePrice * (surcharge / 100.0);
+                                     
+                String eventName = (matchedPeriod != null && matchedPeriod.getPriceRate() != null) 
+                         ? matchedPeriod.getPriceRate().getEventName() : null;
+                
+                return new HomeRoomTypeView(roomType, basePrice + actualSurchargeMoney, basePrice, eventName, actualSurchargeMoney);
+            }).toList();
 
-        List<RoomType> luxuryRoomTypes = roomTypesByPriceDesc.stream().limit(3).toList();
-        Set<String> luxuryRoomTypeIds = luxuryRoomTypes.stream().map(RoomType::getId).filter(StringUtils::hasText).collect(Collectors.toSet());
-        List<RoomType> budgetRoomTypes = roomTypesByPriceAsc.stream().filter(type -> !luxuryRoomTypeIds.contains(type.getId())).limit(3).toList();
+        List<HomeRoomTypeView> roomTypesByPriceDesc = roomTypeViews.stream()
+                .sorted(Comparator.comparing(HomeRoomTypeView::basePrice).reversed()
+                .thenComparing(item -> item.roomType().getName(), Comparator.nullsLast(String::compareToIgnoreCase))).toList();
+        
+        List<HomeRoomTypeView> roomTypesByPriceAsc = roomTypeViews.stream()
+                .sorted(Comparator.comparing(HomeRoomTypeView::basePrice)
+                .thenComparing(item -> item.roomType().getName(), Comparator.nullsLast(String::compareToIgnoreCase))).toList();
+
+        List<HomeRoomTypeView> luxuryRoomTypes = roomTypesByPriceDesc.stream().limit(3).toList();
+        Set<String> luxuryRoomTypeIds = luxuryRoomTypes.stream().map(item -> item.roomType().getId()).filter(StringUtils::hasText).collect(Collectors.toSet());
+        List<HomeRoomTypeView> budgetRoomTypes = roomTypesByPriceAsc.stream().filter(item -> !luxuryRoomTypeIds.contains(item.roomType().getId())).limit(3).toList();
+
+        List responseLuxury = new ArrayList<>();
+        for (HomeRoomTypeView view : luxuryRoomTypes) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("id", view.roomType().getId());
+            r.put("name", view.roomType().getName());
+            r.put("description", view.roomType().getDescription());
+            r.put("adultMax", view.roomType().getAdultMax());
+            r.put("childrenMax", view.roomType().getChildrenMax());
+            r.put("area", view.roomType().getArea());
+            r.put("displayPrice", view.displayPrice());
+            r.put("basePrice", view.basePrice());
+            r.put("eventName", view.eventName());
+            r.put("surchargeAmount", view.surchargeAmount());
+            responseLuxury.add(r);
+        }
 
         return ResponseEntity.ok(Map.of(
-            "roomTypes", roomTypes,
-            "luxuryRoomTypes", luxuryRoomTypes,
+            "roomTypes", roomTypeRepository.findAll().stream().sorted(Comparator.comparing(RoomType::getName)).toList(),
+            "luxuryRoomTypes", responseLuxury,
             "budgetRoomTypes", budgetRoomTypes
         ));
     }
@@ -169,8 +214,7 @@ public class CustomerController {
                 })
                 .sorted(resolveRoomSort(sortBy)).toList();
 
-        // Đã fix lỗi khai báo List>
-        List<Map<String, Object>> responseRooms = new ArrayList<>();
+        List responseRooms = new ArrayList<>();
         for (RoomCardView view : roomCards) {
             Map<String, Object> r = new HashMap<>();
             r.put("id", view.room().getId());
@@ -178,11 +222,9 @@ public class CustomerController {
             r.put("roomType", view.room().getRoomType());
             r.put("displayPrice", view.displayPrice());
             r.put("images", getRoomGalleryPaths(view.room()));
-                         
             r.put("basePrice", view.basePrice());
             r.put("eventName", view.eventName());
             r.put("surchargeAmount", view.surchargeAmount());
-                         
             responseRooms.add(r);
         }
 
