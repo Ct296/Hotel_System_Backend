@@ -12,6 +12,7 @@ public class RoomTypeRequest {
     private Integer childrenMax;
     private BigDecimal area;
     private Double basePrice;
+    private Double dailyPrice;
     private Double depositPercent;
     private String description;
     private List<String> amenityIds;

@@ -41,11 +41,9 @@ public class ChatController {
                                                     HttpSession session) {
 
         String message = body.getOrDefault("message", "");
-
         // Lấy User từ JWT thay vì Session cũ
         Users currentUser = getCurrentUser();
-
-        // Gọi service xử lý chat (vẫn dùng session để giữ lịch sử hội thoại cho Gemini)
+        // Gọi service xử lý chat (vẫn dùng session để giữ lịch sử hội thoại )
         String reply = chatService.reply(message, currentUser, session);
 
         Map<String, Object> result = new HashMap<>();

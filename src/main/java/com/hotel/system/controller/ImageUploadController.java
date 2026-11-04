@@ -22,13 +22,11 @@ public class ImageUploadController {
         }
 
         try {
-            // type truyền vào sẽ là "rooms" hoặc "users"
             Path uploadDir = Paths.get("uploads", type);
             if (!Files.exists(uploadDir)) {
                 Files.createDirectories(uploadDir);
             }
 
-            // Tạo tên file ngẫu nhiên để không bị ghi đè
             String originalFilename = file.getOriginalFilename();
             String extension = originalFilename != null && originalFilename.contains(".") 
                     ? originalFilename.substring(originalFilename.lastIndexOf(".")) 
@@ -38,7 +36,6 @@ public class ImageUploadController {
             Path filePath = uploadDir.resolve(newFileName);
             Files.copy(file.getInputStream(), filePath);
 
-            // Trả về đường dẫn để Frontend lưu vào Database
             String fileUrl = "/uploads/" + type + "/" + newFileName;
             
             return ResponseEntity.ok(Map.of("url", fileUrl));

@@ -7,12 +7,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.File;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
@@ -67,8 +70,14 @@ public class LocalMediaStorageService implements MediaStorageService {
             String fileName = safeEntityKey + "_" + UUID.randomUUID().toString().replace("-", "") + "." + extension;
             Path targetPath = targetDirectory.resolve(fileName).normalize();
 
+            // SANITIZE ẢNH BẰNG CÁCH RE-ENCODE
             try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                BufferedImage originalImage = ImageIO.read(inputStream);
+                if (originalImage == null) {
+                    throw new IllegalArgumentException("File ảnh bị lỗi hoặc chứa dữ liệu không xác định.");
+                }
+                File outputFile = targetPath.toFile();
+                ImageIO.write(originalImage, extension, outputFile);
             }
 
             String publicPath = "/uploads/" + directory.getFolderName() + "/" + fileName;

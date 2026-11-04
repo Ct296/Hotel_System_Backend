@@ -36,12 +36,16 @@ public class CustomerController {
             RentalDetailStatus.PENDING, RentalDetailStatus.CHECKED_IN, RentalDetailStatus.OVERDUE
     );
 
-    private static final long CLEANING_BUFFER_MINUTES = 30;
-    private static final long BOOKING_HOLD_MINUTES = 30;
-    private static final int MINIMUM_STAY_HOURS = 1;
-    private static final int SHORT_STAY_SURCHARGE_THRESHOLD_HOURS = 6;
-    private static final double SHORT_STAY_SURCHARGE_PERCENT = 10.0;
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
+    @Value("${hotel.booking.hold-minutes:15}")
+    private long bookingHoldMinutes;
+
+    @Value("${hotel.room.cleaning-buffer-minutes:30}")
+    private long cleaningBufferMinutes;
+
+    @Value("${hotel.stay.minimum-hours:1}")
+    private int minimumStayHours;
 
     private final RoomTypeRepository roomTypeRepository;
     private final RoomRepository roomRepository;
@@ -65,10 +69,7 @@ public class CustomerController {
     @Value("${payment.vnpay.frontend-return-url:http://localhost:5173/customer/profile}")
     private String frontendReturnUrl;
 
-    // Record cho màn hình Rooms
     private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice, String eventName, double surchargeAmount) {}
-    
-    // Record cho màn hình Home
     private record HomeRoomTypeView(RoomType roomType, double displayPrice, double basePrice, String eventName, double surchargeAmount) {}
 
     public CustomerController(RoomTypeRepository roomTypeRepository, RoomRepository roomRepository,
@@ -250,56 +251,78 @@ public class CustomerController {
     public ResponseEntity<?> calculateBooking(@RequestBody Map<String, Object> payload) {
         List<String> roomIds = (List<String>) payload.get("roomId");
         if (roomIds == null || roomIds.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "Vui lòng chọn ít nhất 1 phòng."));
-
+        
         LocalDateTime checkIn = payload.get("checkIn") != null ? LocalDateTime.parse(payload.get("checkIn").toString()) : null;
         LocalDateTime checkOut = payload.get("checkOut") != null ? LocalDateTime.parse(payload.get("checkOut").toString()) : null;
+        
+        RentalType rentalType = payload.get("rentalType") != null ? 
+                RentalType.valueOf(payload.get("rentalType").toString()) : RentalType.HOURLY;
 
         List<Room> selectedRooms = roomRepository.findAllById(roomIds);
         if (selectedRooms.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy phòng."));
-
+        
         LocalDateTime minimumBookingStartTime = getMinimumBookingStartTime();
         LocalDateTime finalCheckIn = checkIn != null ? checkIn : minimumBookingStartTime;
         LocalDateTime finalCheckOut = checkOut != null ? checkOut : finalCheckIn.plusHours(1);
-
         if (finalCheckIn.isBefore(minimumBookingStartTime)) finalCheckIn = minimumBookingStartTime;
         if (!finalCheckOut.isAfter(finalCheckIn)) finalCheckOut = finalCheckIn.plusHours(1);
-
+        
         double totalRoomUnitPrice = 0;
+        double originalRoomUnitPrice = 0;
         boolean bookingAvailable = true;
         String conflictMessage = null;
-
+        
         for (Room room : selectedRooms) {
-            totalRoomUnitPrice += resolveRoomUnitPrice(room, finalCheckIn);
+            double basePrice = 0.0;
+            if (rentalType == RentalType.DAILY) {
+                basePrice = room.getRoomType() != null && room.getRoomType().getDailyPrice() != null ? 
+                            room.getRoomType().getDailyPrice() : 
+                            (room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
+            } else {
+                basePrice = room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
+            }
+
+            originalRoomUnitPrice += basePrice;
+            totalRoomUnitPrice += resolveRoomUnitPrice(room, finalCheckIn, rentalType);
+            
             Rental conflictRental = findBlockingRentalConflict(room, finalCheckIn, finalCheckOut);
             if (conflictRental != null && bookingAvailable) {
                 bookingAvailable = false;
-                conflictMessage = "Phòng " + room.getName() + " đang bị trùng lịch trong khung: " + buildConflictRange(conflictRental);
+                conflictMessage = "Phòng " + room.getName() + " đang bận lịch trong khung: " + buildConflictRange(conflictRental);
             }
         }
-
+        
         int stayHours = calculateStayHours(finalCheckIn, finalCheckOut);
-        double roomSubTotal = calculateRoomSubTotal(totalRoomUnitPrice, stayHours);
-        double shortStaySurchargeAmount = calculateShortStaySurcharge(roomSubTotal, stayHours);
-        double totalPrice = roomSubTotal + shortStaySurchargeAmount;
-
+        
+        double originalRoomSubTotal = calculateRoomSubTotal(originalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
+        double roomSubTotal = calculateRoomSubTotal(totalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
+        double eventSurchargeAmount = roomSubTotal - originalRoomSubTotal; 
+        
+        double totalPrice = roomSubTotal; 
+        
         double totalDepositAmount = 0;
         for (Room room : selectedRooms) {
-            double singleSub = calculateRoomSubTotal(resolveRoomUnitPrice(room, finalCheckIn), stayHours);
-            double singleSurch = calculateShortStaySurcharge(singleSub, stayHours);
-            totalDepositAmount += calculateDepositAmount(singleSub + singleSurch, resolveDepositPercent(room));
+            double singleSub = calculateRoomSubTotal(resolveRoomUnitPrice(room, finalCheckIn, rentalType), finalCheckIn, finalCheckOut, rentalType);
+            totalDepositAmount += calculateDepositAmount(singleSub, resolveDepositPercent(room));
         }
 
-        return ResponseEntity.ok(Map.of(
-            "rooms", selectedRooms,
-            "checkIn", finalCheckIn,
-            "checkOut", finalCheckOut,
-            "stayHours", stayHours,
-            "totalPrice", totalPrice,
-            "depositAmount", totalDepositAmount,
-            "remainingAmount", totalPrice - totalDepositAmount,
-            "bookingAvailable", bookingAvailable,
-            "conflictMessage", conflictMessage != null ? conflictMessage : ""
-        ));
+        Map<String, Object> response = new HashMap<>();
+        response.put("rooms", selectedRooms);
+        response.put("checkIn", finalCheckIn);
+        response.put("checkOut", finalCheckOut);
+        response.put("stayHours", stayHours);
+        
+        response.put("originalRoomSubTotal", originalRoomSubTotal);
+        response.put("eventSurchargeAmount", eventSurchargeAmount);
+        response.put("shortStaySurchargeAmount", 0.0); 
+        
+        response.put("totalPrice", totalPrice);
+        response.put("depositAmount", totalDepositAmount);
+        response.put("remainingAmount", totalPrice - totalDepositAmount);
+        response.put("bookingAvailable", bookingAvailable);
+        response.put("conflictMessage", conflictMessage != null ? conflictMessage : "");
+
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/api/customer/booking/confirm")
@@ -315,7 +338,7 @@ public class CustomerController {
             Customer customer = customerRepository.findById(currentUser.getId()).orElseThrow();
             Rental rental = customerBookingService.processBooking(request, customer);
             return ResponseEntity.ok(Map.of(
-                "message", "Tạo booking thành công. Vui lòng thanh toán cọc trong 30 phút.",
+                "message", "Tạo booking thành công. Vui lòng thanh toán cọc trong 15 phút.",
                 "rentalId", rental.getId()
             ));
         } catch (IllegalArgumentException | IllegalStateException e) {
@@ -340,13 +363,18 @@ public class CustomerController {
         }
 
         List<RentalDetail> details = rental.getRentalDetails();
-        int stayHours = details.get(0).getLengthOfStay() == null ? MINIMUM_STAY_HOURS : Math.max(details.get(0).getLengthOfStay(), MINIMUM_STAY_HOURS);
+        int stayHours = details.get(0).getLengthOfStay() == null ? minimumStayHours : Math.max(details.get(0).getLengthOfStay(), minimumStayHours);
+        RentalType rentalType = details.get(0).getRentalType() != null ? details.get(0).getRentalType() : RentalType.HOURLY;
+        
         double totalDepositAmount = 0;
 
         for (RentalDetail detail : details) {
-            double subTotal = calculateRoomSubTotal(detail.getUnitPrice() == null ? 0.0 : detail.getUnitPrice(), stayHours);
-            double surcharge = calculateShortStaySurcharge(subTotal, stayHours);
-            totalDepositAmount += calculateDepositAmount(subTotal + surcharge, resolveDepositPercent(detail.getRoom()));
+            double unitPrice = detail.getUnitPrice() == null ? 0.0 : detail.getUnitPrice();
+            LocalDateTime ci = detail.getCheckinDate() != null ? detail.getCheckinDate() : LocalDateTime.now();
+            LocalDateTime co = ci.plusHours(stayHours);
+            
+            double subTotal = calculateRoomSubTotal(unitPrice, ci, co, rentalType);
+            totalDepositAmount += calculateDepositAmount(subTotal, resolveDepositPercent(detail.getRoom()));
         }
 
         try {
@@ -360,7 +388,7 @@ public class CustomerController {
                             .returnUrl("http://localhost:8080/api/public/vnpay-return")
                             .ipAddress("127.0.0.1")
                             .createdAt(LocalDateTime.now())
-                            .expiredAt(rental.getRentDate() == null ? LocalDateTime.now().plusMinutes(30) : rental.getRentDate().plusMinutes(30))
+                            .expiredAt(rental.getRentDate() == null ? LocalDateTime.now().plusMinutes(10) : rental.getRentDate().plusMinutes(15))
                             .build()
             );
             return ResponseEntity.ok(Map.of("paymentUrl", paymentUrl));
@@ -394,13 +422,18 @@ public class CustomerController {
         }
 
         List<RentalDetail> details = rental.getRentalDetails();
-        int stayHours = details.get(0).getLengthOfStay() == null ? MINIMUM_STAY_HOURS : Math.max(details.get(0).getLengthOfStay(), MINIMUM_STAY_HOURS);
+        int stayHours = details.get(0).getLengthOfStay() == null ? minimumStayHours : Math.max(details.get(0).getLengthOfStay(), minimumStayHours);
+        RentalType rentalType = details.get(0).getRentalType() != null ? details.get(0).getRentalType() : RentalType.HOURLY;
+        
         double totalDepositAmount = 0;
 
         for (RentalDetail detail : details) {
-            double subTotal = calculateRoomSubTotal(detail.getUnitPrice() == null ? 0.0 : detail.getUnitPrice(), stayHours);
-            double surcharge = calculateShortStaySurcharge(subTotal, stayHours);
-            totalDepositAmount += calculateDepositAmount(subTotal + surcharge, resolveDepositPercent(detail.getRoom()));
+            double unitPrice = detail.getUnitPrice() == null ? 0.0 : detail.getUnitPrice();
+            LocalDateTime ci = detail.getCheckinDate() != null ? detail.getCheckinDate() : LocalDateTime.now();
+            LocalDateTime co = ci.plusHours(stayHours);
+
+            double subTotal = calculateRoomSubTotal(unitPrice, ci, co, rentalType);
+            totalDepositAmount += calculateDepositAmount(subTotal, resolveDepositPercent(detail.getRoom()));
         }
 
         Bill depositBill = new Bill();
@@ -560,7 +593,6 @@ public class CustomerController {
         return ResponseEntity.ok(Map.of("message", "Đã xóa đánh giá."));
     }
 
-    // --- PRIVATE UTILS KHÔNG THAY ĐỔI ---
     private boolean isRoomAvailable(Room room, LocalDateTime checkIn, LocalDateTime checkOut) {
         return findBlockingRentalConflict(room, checkIn, checkOut) == null;
     }
@@ -569,7 +601,7 @@ public class CustomerController {
         if (room == null || room.getStatus() != RoomStatus.AVAILABLE || checkIn == null || checkOut == null) return new Rental();
 
         LocalDateTime requestedStart = checkIn;
-        LocalDateTime requestedEnd = checkOut.plusMinutes(CLEANING_BUFFER_MINUTES);
+        LocalDateTime requestedEnd = checkOut.plusMinutes(cleaningBufferMinutes);
 
         return rentalRepository.findAll().stream()
                 .filter(rental -> rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty() && rental.getRentalDetails().get(0).getRoom() != null)
@@ -592,17 +624,41 @@ public class CustomerController {
     }
 
     private int calculateStayHours(LocalDateTime checkIn, LocalDateTime checkOut) {
-        if (checkIn == null || checkOut == null) return MINIMUM_STAY_HOURS;
+        if (checkIn == null || checkOut == null) return minimumStayHours;
         long stayHours = ChronoUnit.HOURS.between(checkIn, checkOut);
-        return stayHours < MINIMUM_STAY_HOURS ? MINIMUM_STAY_HOURS : (int) stayHours;
+        return stayHours < minimumStayHours ? minimumStayHours : (int) stayHours;
     }
 
-    private double calculateRoomSubTotal(double roomUnitPrice, int stayHours) {
-        return Math.max(roomUnitPrice, 0.0) * Math.max(stayHours, MINIMUM_STAY_HOURS);
-    }
+    // LOGIC CHỐT: TÍNH CHÍNH XÁC PHỤ THU % LƯU TRÚ
+    private double calculateRoomSubTotal(double roomUnitPrice, LocalDateTime checkIn, LocalDateTime checkOut, RentalType rentalType) {
+        if (checkIn == null || checkOut == null) return 0.0;
+        
+        if (rentalType == RentalType.DAILY) {
+            long baseNights = ChronoUnit.DAYS.between(checkIn.toLocalDate(), checkOut.toLocalDate());
+            baseNights = Math.max(0, baseNights);
 
-    private double calculateShortStaySurcharge(double roomSubTotal, int stayHours) {
-        return stayHours < SHORT_STAY_SURCHARGE_THRESHOLD_HOURS ? roomSubTotal * SHORT_STAY_SURCHARGE_PERCENT / 100.0 : 0.0;
+            double earlyCiSurcharge = 0.0;
+            int ciHour = checkIn.getHour();
+            if (ciHour < 5) earlyCiSurcharge = 1.0;
+            else if (ciHour < 9) earlyCiSurcharge = 0.5;
+            else if (ciHour < 14) earlyCiSurcharge = 0.3;
+
+            double lateCoSurcharge = 0.0;
+            int coMinutes = checkOut.getHour() * 60 + checkOut.getMinute();
+            if (coMinutes > 1080) lateCoSurcharge = 1.0;
+            else if (coMinutes > 900) lateCoSurcharge = 0.5;
+            else if (coMinutes > 720) lateCoSurcharge = 0.3;
+
+            double totalMultiplier = baseNights + earlyCiSurcharge + lateCoSurcharge;
+            if (totalMultiplier <= 0) totalMultiplier = 1.0; 
+            
+            return Math.max(roomUnitPrice, 0.0) * totalMultiplier;
+        }
+        
+        long stayMinutes = ChronoUnit.MINUTES.between(checkIn, checkOut);
+        long fullHours = stayMinutes / 60;
+        int finalHours = Math.max(minimumStayHours, (int) fullHours + (stayMinutes % 60 > 30 ? 1 : 0));
+        return Math.max(roomUnitPrice, 0.0) * finalHours;
     }
 
     private double resolveDepositPercent(Room room) {
@@ -616,17 +672,28 @@ public class CustomerController {
         return Math.max(totalAmount, 0.0) * dp / 100.0;
     }
 
-    private double resolveRoomUnitPrice(Room room, LocalDateTime checkInDate) {
+    private double resolveRoomUnitPrice(Room room, LocalDateTime checkInDate, RentalType rentalType) {
         if (room == null || room.getRoomType() == null) return 0.0;
-        double basePrice = room.getRoomType().getBasePrice() == null ? 0.0 : room.getRoomType().getBasePrice();
+        
+        double basePrice = 0.0;
+        if (rentalType == RentalType.DAILY) {
+            basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() : 
+                        (room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
+        } else {
+            basePrice = room.getRoomType().getBasePrice() == null ? 0.0 : room.getRoomType().getBasePrice();
+        }
+        
         if (room.getRoomType().getId() == null || checkInDate == null) return basePrice;
         
         AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(room.getRoomType().getId())
                 .stream().filter(p -> p.getStartDate() != null && p.getEndDate() != null)
                 .filter(p -> !checkInDate.isBefore(p.getStartDate()) && !checkInDate.isAfter(p.getEndDate()))
                 .findFirst().orElse(null);
+        
         if (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null) {
-            return basePrice + matchedPeriod.getPriceRate().getSurchargeAmount();
+            double percent = matchedPeriod.getPriceRate().getSurchargeAmount(); 
+            double surchargeMoney = basePrice * (percent / 100.0); 
+            return basePrice + surchargeMoney; 
         }
         return basePrice;
     }
@@ -680,9 +747,9 @@ public class CustomerController {
     }
 
     private String getDefaultRoomImagePath() {
-        return "https://images.unsplash.com/photo-1611892440504-42a792e24d32?auto=format&fit=crop&w=900&q=80";
+        return "/image/default_room.jpg";
     }
-
+    
     @PostMapping("/api/customer/profile/sync-tier")
     public ResponseEntity<?> syncMyTier() {
         Users currentUser = getLoggedInCustomer();

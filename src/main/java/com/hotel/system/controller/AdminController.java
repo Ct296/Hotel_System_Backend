@@ -49,7 +49,6 @@ import java.util.*;
 public class AdminController {
     
     private final AdminAccountService adminAccountService;
-    private final AdminRepository adminRepository;
     private final AccountRepository accountRepository;
     private final AccountStatusRepository accountStatusRepository;
     private final BillRepository billRepository;

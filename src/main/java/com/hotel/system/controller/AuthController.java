@@ -10,6 +10,7 @@ import com.hotel.system.repository.AccountStatusRepository;
 import com.hotel.system.repository.UsersRepository;
 import com.hotel.system.security.JwtTokenProvider;
 import com.hotel.system.service.AuthService;
+import com.hotel.system.service.LoginAttemptService;
 import com.hotel.system.util.PasswordUtils;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
@@ -37,6 +38,7 @@ public class AuthController {
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
     private final com.hotel.system.repository.ManagerRepository managerRepository;
+    private final LoginAttemptService loginAttemptService;
 
     @Data
     public static class LoginRequest {
@@ -46,14 +48,19 @@ public class AuthController {
         private boolean isEmployee; 
     }
 
-    // 1. ĐĂNG NHẬP (Chung cho Khách và Nhân viên)
-    // 1. ĐĂNG NHẬP (Chung cho Khách và Nhân viên)
+    // 1. ĐĂNG NHẬP
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest) {
         String trimmedEmail = loginRequest.getEmail().trim().toLowerCase();
         
+        if (loginAttemptService.isBlocked(trimmedEmail)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Tài khoản bị khóa tạm thời 15 phút do nhập sai quá 5 lần."));
+        }
+
         Optional<Users> userOpt = usersRepository.findByEmail(trimmedEmail);
         if (userOpt.isEmpty()) {
+            loginAttemptService.loginFailed(trimmedEmail); // Ghi nhận đăng nhập sai
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Email hoặc mật khẩu không đúng!"));
         }
         
@@ -71,11 +78,13 @@ public class AuthController {
 
         Optional<Account> accountOpt = accountRepository.findById(user.getId());
         if (accountOpt.isEmpty()) {
+            loginAttemptService.loginFailed(trimmedEmail); // Ghi nhận đăng nhập sai
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Email hoặc mật khẩu không đúng!"));
         }
 
         Account account = accountOpt.get();
         if (!PasswordUtils.matches(loginRequest.getPassword(), account.getPassword())) {
+            loginAttemptService.loginFailed(trimmedEmail); // Ghi nhận sai mật khẩu
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Email hoặc mật khẩu không đúng!"));
         }
 
@@ -93,6 +102,9 @@ public class AuthController {
             account.setPassword(PasswordUtils.hashPassword(loginRequest.getPassword()));
             accountRepository.save(account);
         }
+
+        // Đăng nhập thành công -> Reset bộ đếm lỗi
+        loginAttemptService.loginSucceeded(trimmedEmail);
 
         // Tạo JWT Token
         UserDetails userDetails = User.withUsername(user.getEmail())
@@ -127,8 +139,6 @@ public class AuthController {
     // 2. ĐĂNG XUẤT
     @PostMapping("/logout")
     public ResponseEntity<?> logout() {
-        // Với JWT (Stateless), Backend không cần xóa Session.
-        // Vue sẽ tự đảm nhận việc xóa Token ở phía Client.
         return ResponseEntity.ok(Map.of("message", "Đăng xuất thành công"));
     }
 

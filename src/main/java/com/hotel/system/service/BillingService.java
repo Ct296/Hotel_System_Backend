@@ -7,6 +7,7 @@ import com.hotel.system.entity.RentalDetail;
 import com.hotel.system.entity.Room;
 import com.hotel.system.entity.RoomType;
 import com.hotel.system.entity.enums.BillType;
+import com.hotel.system.entity.enums.RentalType;
 import com.hotel.system.repository.AppliedPeriodRepository;
 import com.hotel.system.repository.BillRepository;
 import com.hotel.system.repository.PaymentRepository;
@@ -21,10 +22,6 @@ import java.util.List;
 public class BillingService {
 
     private static final int MINIMUM_WALK_IN_HOURS = 1;
-    private static final int SHORT_STAY_SURCHARGE_THRESHOLD_HOURS = 6;
-    private static final double SHORT_STAY_SURCHARGE_PERCENT = 10.0;
-    private static final double EARLY_CHECKOUT_THRESHOLD_RATIO = 0.8;
-    private static final double EARLY_CHECKOUT_PENALTY_PERCENT = 10.0;
 
     private final AppliedPeriodRepository appliedPeriodRepository;
     private final ServiceUsageRepository serviceUsageRepository;
@@ -43,50 +40,67 @@ public class BillingService {
 
     public BillingSummary buildBillingSummary(Rental rental) {
         if (rental == null || rental.getRentalDetails() == null || rental.getRentalDetails().isEmpty()) {
-            return new BillingSummary(0.0, 0.0, 0.0, 0.0, 0.0, MINIMUM_WALK_IN_HOURS, 0.0, 1.0, BillType.FINAL);
+            return new BillingSummary(0.0, 0.0, 0.0, 0.0, 0.0, MINIMUM_WALK_IN_HOURS, 0.0, 0.0, 1.0, BillType.FINAL);
         }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime earliestCheckin = rental.getRentalDetails().stream()
+                .map(RentalDetail::getCheckinDate).filter(d -> d != null)
+                .min(LocalDateTime::compareTo).orElse(now);
+                
+        LocalDateTime effectiveCheckOut = now.isBefore(earliestCheckin) 
+                ? earliestCheckin.plusHours(rental.getRentalDetails().stream().mapToInt(d -> normalizeStayLength(d.getLengthOfStay())).max().orElse(MINIMUM_WALK_IN_HOURS)) 
+                : now;
 
         int actualStayHours = resolveActualStayHours(rental);
         int maxPlannedStayHours = rental.getRentalDetails().stream()
                 .mapToInt(d -> normalizeStayLength(d.getLengthOfStay()))
                 .max().orElse(MINIMUM_WALK_IN_HOURS);
-        double totalRoomAmount = 0.0;
 
+        double totalRoomAmount = 0.0;
+        double totalEarlyCheckinSurcharge = 0.0;
+        double totalLateCheckoutSurcharge = 0.0;
+        
         for (RentalDetail detail : rental.getRentalDetails()) {
-            double unitPrice = detail.getUnitPrice() != null ? detail.getUnitPrice() : resolveRoomUnitPrice(detail.getRoom(), detail.getCheckinDate());
-            double subTotal = calculateRoomSubTotal(unitPrice, actualStayHours);
-            totalRoomAmount += (subTotal + calculateShortStaySurcharge(subTotal, actualStayHours));
+            RentalType type = detail.getRentalType() != null ? detail.getRentalType() : RentalType.HOURLY;
+            double unitPrice = detail.getUnitPrice() != null ? detail.getUnitPrice() : resolveRoomUnitPrice(detail.getRoom(), detail.getCheckinDate(), type);
+            
+            LocalDateTime ci = detail.getCheckinDate() != null ? detail.getCheckinDate() : earliestCheckin;
+            LocalDateTime co = now.isBefore(ci) ? ci.plusHours(normalizeStayLength(detail.getLengthOfStay())) : effectiveCheckOut;
+            
+            // Tính toán chi tiết
+            double[] breakdown = calculateRoomSubTotalBreakdown(unitPrice, ci, co, type);
+            totalRoomAmount += breakdown[0]; // Tiền phòng + Phụ thu
+            totalEarlyCheckinSurcharge += breakdown[1]; // Chỉ lấy tiền phụ thu nhận sớm
+            totalLateCheckoutSurcharge += breakdown[2]; // Chỉ lấy tiền phụ thu trả muộn
         }
 
         double completionRatio = maxPlannedStayHours <= 0 ? 1.0 : (double) actualStayHours / maxPlannedStayHours;
-        double earlyCheckoutPenaltyPercent = 0.0;
-        BillType billType = BillType.FINAL;
-
-        if (isEarlyCheckout(rental, actualStayHours)) {
-            billType = BillType.EARLY_CHECKOUT;
-            if (completionRatio < EARLY_CHECKOUT_THRESHOLD_RATIO) {
-                earlyCheckoutPenaltyPercent = EARLY_CHECKOUT_PENALTY_PERCENT;
-                totalRoomAmount += totalRoomAmount * earlyCheckoutPenaltyPercent / 100.0;
-            }
-        }
+        BillType billType = actualStayHours < maxPlannedStayHours ? BillType.EARLY_CHECKOUT : BillType.FINAL;
 
         double serviceAmount = calculateServiceAmount(rental);
         double depositPaid = calculateDepositPaid(rental.getId());
         double finalAmount = Math.max(0.0, totalRoomAmount + serviceAmount - depositPaid);
 
         return new BillingSummary(totalRoomAmount, serviceAmount, depositPaid, calculateDepositAmount(rental), finalAmount,
-                actualStayHours, earlyCheckoutPenaltyPercent, completionRatio, billType);
+                actualStayHours, totalEarlyCheckinSurcharge, totalLateCheckoutSurcharge, completionRatio, billType); 
     }
 
     public double calculateDepositAmount(Rental rental) {
         if (rental == null || rental.getRentalDetails() == null) return 0.0;
+        
         double totalDeposit = 0.0;
         for (RentalDetail detail : rental.getRentalDetails()) {
+            RentalType type = detail.getRentalType() != null ? detail.getRentalType() : RentalType.HOURLY;
             int stayLength = normalizeStayLength(detail.getLengthOfStay());
-            double unitPrice = detail.getUnitPrice() != null ? detail.getUnitPrice() : resolveRoomUnitPrice(detail.getRoom(), detail.getCheckinDate());
-            double subTotal = calculateRoomSubTotal(unitPrice, stayLength);
-            double roomAmount = subTotal + calculateShortStaySurcharge(subTotal, stayLength);
+            double unitPrice = detail.getUnitPrice() != null ? detail.getUnitPrice() : resolveRoomUnitPrice(detail.getRoom(), detail.getCheckinDate(), type);
+            
+            LocalDateTime ci = detail.getCheckinDate() != null ? detail.getCheckinDate() : LocalDateTime.now();
+            LocalDateTime co = ci.plusHours(stayLength);
+            
+            double roomAmount = calculateRoomSubTotalBreakdown(unitPrice, ci, co, type)[0];
             double depositPct = resolveDepositPercent(detail.getRoom() != null ? detail.getRoom().getRoomType() : null);
+            
             totalDeposit += calculateDepositAmount(roomAmount, depositPct);
         }
         return totalDeposit;
@@ -114,11 +128,19 @@ public class BillingService {
                 || hasPaymentForBillType(rentalId, BillType.EARLY_CHECKOUT);
     }
 
-    private double resolveRoomUnitPrice(Room room, LocalDateTime effectiveMoment) {
+    private double resolveRoomUnitPrice(Room room, LocalDateTime effectiveMoment, RentalType rentalType) {
         if (room == null || room.getRoomType() == null) return 0.0;
         RoomType roomType = room.getRoomType();
-        double basePrice = roomType.getBasePrice() == null ? 0.0 : roomType.getBasePrice();
-        if (effectiveMoment == null || roomType.getId() == null) return basePrice;
+        
+        double price = 0.0;
+        if (rentalType == RentalType.DAILY) {
+            price = roomType.getDailyPrice() != null ? roomType.getDailyPrice() : 
+                    (roomType.getBasePrice() != null ? roomType.getBasePrice() * 22 : 0.0);
+        } else {
+            price = roomType.getBasePrice() == null ? 0.0 : roomType.getBasePrice();
+        }
+
+        if (effectiveMoment == null || roomType.getId() == null) return price;
 
         AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(roomType.getId())
                 .stream()
@@ -128,9 +150,9 @@ public class BillingService {
                 .orElse(null);
 
         if (matchedPeriod == null || matchedPeriod.getPriceRate() == null || matchedPeriod.getPriceRate().getSurchargeAmount() == null) {
-            return basePrice;
+            return price;
         }
-        return basePrice + matchedPeriod.getPriceRate().getSurchargeAmount();
+        return price + matchedPeriod.getPriceRate().getSurchargeAmount();
     }
 
     private double calculateServiceAmount(Rental rental) {
@@ -167,25 +189,48 @@ public class BillingService {
         return Math.max(MINIMUM_WALK_IN_HOURS, (int) fullHours + (totalMinutes % 60 > 30 ? 1 : 0));
     }
 
-    private boolean isEarlyCheckout(Rental rental, int actualStayHours) {
-        RentalDetail firstDetail = (rental != null && rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty()) 
-                                    ? rental.getRentalDetails().get(0) : null;
-        return firstDetail != null && actualStayHours < normalizeStayLength(firstDetail.getLengthOfStay());
-    }
-
     private int normalizeStayLength(Integer stayLength) {
         return (stayLength == null || stayLength < MINIMUM_WALK_IN_HOURS) ? MINIMUM_WALK_IN_HOURS : stayLength;
     }
 
-    private double calculateRoomSubTotal(double roomUnitPrice, int stayLength) {
-        return Math.max(roomUnitPrice, 0.0) * normalizeStayLength(stayLength);
-    }
+    // LOGIC CHỐT: BÓC TÁCH CHÍNH XÁC TIỀN PHỤ THU
+    // Trả về mảng: [0] = Tổng tiền phòng, [1] = Tiền phụ thu vào sớm, [2] = Tiền phụ thu ra muộn
+    private double[] calculateRoomSubTotalBreakdown(double roomUnitPrice, LocalDateTime checkIn, LocalDateTime checkOut, RentalType rentalType) {
+        if (checkIn == null || checkOut == null) return new double[]{0.0, 0.0, 0.0};
+        
+        double price = Math.max(roomUnitPrice, 0.0);
+        
+        if (rentalType == RentalType.DAILY) {
+            long baseNights = ChronoUnit.DAYS.between(checkIn.toLocalDate(), checkOut.toLocalDate());
+            baseNights = Math.max(0, baseNights);
 
-    private double calculateShortStaySurcharge(double roomSubTotal, int stayLength) {
-        if (normalizeStayLength(stayLength) < SHORT_STAY_SURCHARGE_THRESHOLD_HOURS) {
-            return roomSubTotal * SHORT_STAY_SURCHARGE_PERCENT / 100.0;
+            double earlyCiSurcharge = 0.0;
+            int ciHour = checkIn.getHour();
+            if (ciHour < 5) earlyCiSurcharge = 1.0;
+            else if (ciHour < 9) earlyCiSurcharge = 0.5;
+            else if (ciHour < 14) earlyCiSurcharge = 0.3;
+
+            double lateCoSurcharge = 0.0;
+            int coMinutes = checkOut.getHour() * 60 + checkOut.getMinute();
+            if (coMinutes > 1080) lateCoSurcharge = 1.0; // Sau 18:00
+            else if (coMinutes > 900) lateCoSurcharge = 0.5; // Sau 15:00
+            else if (coMinutes > 720) lateCoSurcharge = 0.3; // Sau 12:00
+
+            double totalMultiplier = baseNights + earlyCiSurcharge + lateCoSurcharge;
+            if (totalMultiplier <= 0) totalMultiplier = 1.0; 
+            
+            double totalRoom = price * totalMultiplier;
+            double earlySurchargeMoney = price * earlyCiSurcharge;
+            double lateSurchargeMoney = price * lateCoSurcharge;
+            
+            return new double[]{totalRoom, earlySurchargeMoney, lateSurchargeMoney};
         }
-        return 0.0;
+        
+        // Loại hình HOURLY không có phụ thu
+        long stayMinutes = ChronoUnit.MINUTES.between(checkIn, checkOut);
+        long fullHours = stayMinutes / 60;
+        int finalHours = Math.max(MINIMUM_WALK_IN_HOURS, (int) fullHours + (stayMinutes % 60 > 30 ? 1 : 0));
+        return new double[]{price * finalHours, 0.0, 0.0};
     }
 
     private double resolveDepositPercent(RoomType roomType) {

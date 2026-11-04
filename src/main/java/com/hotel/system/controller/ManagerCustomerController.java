@@ -61,7 +61,6 @@ public class ManagerCustomerController {
         return false;
     }
 
-    // Hàm Helper lấy trạng thái mới nhất
     private AccountStatus getEffectiveLatestStatus(String userId) {
         List<AccountStatus> statuses = accountStatusRepository.findAll()
                 .stream()
@@ -199,7 +198,6 @@ public class ManagerCustomerController {
         }
     }
 
-    // 
     @PutMapping("/{id}/toggle-lock")
     public ResponseEntity<?> toggleCustomerLock(@PathVariable String id) {
         if (!hasCustomerAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

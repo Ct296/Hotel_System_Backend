@@ -215,7 +215,6 @@ public class ManagerHrController {
     public ResponseEntity<?> getAllStaffs() {
         if (!hasHrAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
 
-        // Chỉ lấy user có Role là STAFF
         List<Users> staffs = usersRepository.findAll().stream()
                 .filter(u -> u.getRole() == Role.STAFF)
                 .toList();
@@ -237,7 +236,6 @@ public class ManagerHrController {
                 map.put("workingStatus", "UNKNOWN");
             }
 
-            // Lấy trạng thái khóa/mở của tài khoản (Sử dụng findByUser_Id)
             List<AccountStatus> statuses = accountStatusRepository.findByAccount_User_IdOrderByStartTimeDesc(u.getId());
             map.put("accountStatus", statuses.isEmpty() ? "UNKNOWN" : statuses.get(0).getName().toString());
             
@@ -272,30 +270,25 @@ public class ManagerHrController {
         if (payload.containsKey("dob") && !payload.get("dob").isBlank()) newUser.setDateOfBirth(LocalDate.parse(payload.get("dob")));
         usersRepository.save(newUser);
 
-        // 2. Tạo STAFF
+        // 2. Tạo User STAFF
         Staff staff = new Staff();
         staff.setId(newUserId);
         staff.setEmploymentTime(LocalDateTime.now());
         staff.setWorkingStatus(WorkingStatus.WORKING);
         staffRepository.save(staff);
 
-        // 3. Tạo ACCOUNT (Truyền Object Users vào thay vì ID chuỗi)
+        // 3. Tạo ACCOUNT
         Account account = new Account();
         account.setUser(newUser); // Liên kết với Users
         account.setPassword(payload.get("password"));
         // Lưu xong thì gán ngược lại biến account để bên dưới xài
-        account = accountRepository.save(account); 
+        account = accountRepository.save(account);
 
         // 4. Kích hoạt trạng thái ACTIVE
         AccountStatus accStatus = new AccountStatus();
         accStatus.setId(com.hotel.system.util.AppUtils.generateId("AST", 10));
-        
-        // CHỖ NÀY ĐÃ SỬA: Truyền đúng biến 'account' vào vì nó @ManyToOne với Account
-        accStatus.setAccount(account); 
-        
-        // CHỖ NÀY ĐÃ SỬA: Dùng đúng tên Enum AccountState của bạn
-        accStatus.setName(com.hotel.system.entity.enums.AccountState.ACTIVE); 
-        
+        accStatus.setAccount(account);
+        accStatus.setName(com.hotel.system.entity.enums.AccountState.ACTIVE);
         accStatus.setStartTime(LocalDateTime.now());
         accStatus.setReason("Tạo tài khoản nhân viên mới");
         accountStatusRepository.save(accStatus);

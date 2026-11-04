@@ -1,5 +1,6 @@
 package com.hotel.system.dto.customer;
 
+import com.hotel.system.entity.enums.RentalType;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -22,6 +23,9 @@ public class BookingConfirmRequest {
 
     @NotEmpty(message = "Thiếu thông tin số trẻ em.")
     private List<Integer> childrenCounts;
+
+    @NotNull(message = "Vui lòng chọn hình thức thuê (Theo giờ / Qua đêm).")
+    private RentalType rentalType;
 
     private String note;
 }

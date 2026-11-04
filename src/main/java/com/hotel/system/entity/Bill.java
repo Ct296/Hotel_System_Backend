@@ -27,8 +27,11 @@ public class Bill {
     @Column(name = "BILL_ActualRoomAmount")
     private Double actualRoomAmount;
 
-    @Column(name = "BILL_EarlyCheckoutPenaltyPercent")
-    private Double earlyCheckoutPenaltyPercent;
+    @Column(name = "BILL_EarlyCheckinSurcharge")
+    private Double earlyCheckinSurcharge;
+
+    @Column(name = "BILL_LateCheckoutSurcharge")
+    private Double lateCheckoutSurcharge;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "BILL_Type", nullable = false)

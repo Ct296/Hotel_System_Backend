@@ -36,7 +36,6 @@ public class KioskController {
             return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy hồ sơ nhân viên."));
         }
 
-        // Tìm ca làm việc trong ngày hôm nay (hoặc hôm qua nếu là ca Đêm vắt sang ngày mới)
         LocalDate today = LocalDate.now();
         List<WorkAssignment> assignments = workAssignmentRepository.findByStaffIdOrderByAssignedAtDesc(staff.getId());
         
@@ -44,7 +43,7 @@ public class KioskController {
         LocalDateTime now = LocalDateTime.now();
 
         for (WorkAssignment a : assignments) {
-            if (a.getEndAt() != null) continue; // Đã bị gỡ phân công
+            if (a.getEndAt() != null) continue; 
             WorkSchedule ws = a.getWorkSchedule();
             if (ws != null && (ws.getDate().equals(today) || ws.getDate().equals(today.minusDays(1)))) {
                 LocalDateTime start = resolveStart(ws.getDate(), ws.getShift());

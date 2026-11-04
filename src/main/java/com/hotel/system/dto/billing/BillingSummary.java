@@ -9,7 +9,15 @@ public record BillingSummary(
         double depositAmount,
         double finalAmount,
         int actualStayHours,
-        double earlyCheckoutPenaltyPercent,
+        
+        double earlyCheckinSurcharge,
+        double lateCheckoutSurcharge,
+        
         double completionRatio,
         BillType billType
-) {}
+) {
+
+    public Object earlyCheckoutPenaltyPercent() {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'earlyCheckoutPenaltyPercent'");
+    }}

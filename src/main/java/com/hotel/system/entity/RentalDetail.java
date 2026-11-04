@@ -2,6 +2,8 @@ package com.hotel.system.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hotel.system.entity.enums.RentalDetailStatus;
+import com.hotel.system.entity.enums.RentalType;
+
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -20,6 +22,10 @@ public class RentalDetail {
 
     @Column(name = "RENTAL_DETAIL_CheckinDate")
     private LocalDateTime checkinDate;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "RENTAL_DETAIL_Type", length = 20)
+    private RentalType rentalType = RentalType.HOURLY;
 
     @Column(name = "RENTAL_DETAIL_LengthOfStay")
     private Integer lengthOfStay;

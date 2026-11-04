@@ -32,16 +32,13 @@ public class SecurityConfig {
             .cors(cors -> cors.configure(http)) 
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // 1. Mở cửa cho request OPTIONS (tránh lỗi CORS chặn đứng từ vòng gửi xe)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                
-                // 2. Mở cửa cho endpoint báo lỗi của Spring Boot (để hiện đúng 404 thay vì 403)
                 .requestMatchers("/error").permitAll()
                 
-                // 3. Các API công khai
+                //Các API công khai
                 .requestMatchers("/api/auth/**", "/api/public/**", "/uploads/**", "/image/**", "/api/kiosk/**").permitAll()
-                
-                // 4. Phân quyền API theo Role
+   
+                //Phân quyền API theo Role
                 .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
                 .requestMatchers("/api/manager/**").hasAnyAuthority("MANAGER", "ADMIN")
                 .requestMatchers("/api/staff/**").hasAnyAuthority("STAFF", "MANAGER", "ADMIN")
@@ -51,7 +48,6 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
-
         return http.build();
     }
 

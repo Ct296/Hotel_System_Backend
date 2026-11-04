@@ -4,6 +4,8 @@ import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.hotel.system.entity.enums.RentalType;
+
 @Data
 public class WalkInRequest {
     private List<String> roomId;
@@ -11,6 +13,7 @@ public class WalkInRequest {
     private Integer lengthOfStay;    // Số giờ thuê dự kiến
     private List<Integer> adultCount;
     private List<Integer> childrenCount;
+    private RentalType rentalType;
 
     // Thông tin khách hàng vãng lai
     private String existingCustomerPid;

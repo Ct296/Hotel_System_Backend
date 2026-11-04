@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.time.temporal.ChronoUnit;
 
 import com.hotel.system.dto.billing.BillingSummary;
 import com.hotel.system.dto.timeline.RoomTimelineRowView;
@@ -94,8 +95,6 @@ public class StaffController {
         return null;
     }
 
-    // 1. API: TỔNG QUAN (OVERVIEW)
-    // 1. API: TỔNG QUAN (OVERVIEW)
     @GetMapping("/overview")
     public ResponseEntity<?> getOverview() {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -132,12 +131,11 @@ public class StaffController {
                 "todayArrivalsCount", todayArrivalsList.size(),
                 "checkedInCount", checkedInCount,
                 "checkedOutCount", cleaningCount,
-                "todayArrivalsList", todayArrivalsList, // Dùng cho Bảng
-                "roomStatusCounts", List.of(availableCount, busyCount, cleaningCount, maintenanceCount) // Dùng cho Biểu đồ
+                "todayArrivalsList", todayArrivalsList, 
+                "roomStatusCounts", List.of(availableCount, busyCount, cleaningCount, maintenanceCount) 
         ));
     }
 
-    // 2. API: TIMELINE PHÒNG
     @GetMapping("/timeline")
     public ResponseEntity<?> getTimeline(@RequestParam(name = "timelineOffsetHours", defaultValue = "0") Integer timelineOffsetHours) {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -166,7 +164,6 @@ public class StaffController {
         ));
     }
 
-    // 3. API: TÌM PHÒNG CHO KHÁCH WALK-IN
     @GetMapping("/walk-in/rooms")
     public ResponseEntity<?> getWalkInRooms(@RequestParam(name = "walkInCheckin", required = false) String walkInCheckin,
                                             @RequestParam(name = "walkInLengthOfStay", defaultValue = "1") Integer walkInLengthOfStay) {
@@ -186,7 +183,6 @@ public class StaffController {
         return ResponseEntity.ok(Map.of("walkInRooms", walkInRooms));
     }
 
-    // 4. API: QUẢN LÝ BOOKING ONLINE (Chờ cọc & Khách đến hôm nay)
     @GetMapping("/bookings")
     public ResponseEntity<?> getBookings() {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -212,7 +208,6 @@ public class StaffController {
         ));
     }
 
-    // 5. API: KHÁCH ĐANG LƯU TRÚ (Và dịch vụ hiện có để staff thêm)
     @GetMapping("/rentals/active")
     public ResponseEntity<?> getActiveRentals() {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -231,7 +226,6 @@ public class StaffController {
 
         List<Service> activeServices = serviceRepository.findByStatusOrderByCreateDateDesc(ServiceStatus.ACTIVE);
 
-        // Tính toán BillingSummary trước để hiển thị nhanh trên UI
         Map<String, BillingSummary> billingSummaries = new HashMap<>();
         for (Rental r : checkedInRentals) billingSummaries.put(r.getId(), billingService.buildBillingSummary(r));
         for (Rental r : overdueRentals) billingSummaries.put(r.getId(), billingService.buildBillingSummary(r));
@@ -244,7 +238,6 @@ public class StaffController {
         ));
     }
 
-    // 6. API: QUẢN LÝ DỌN PHÒNG (Phòng đang bẩn)
     @GetMapping("/rentals/cleaning")
     public ResponseEntity<?> getCleaningRooms() {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -258,13 +251,10 @@ public class StaffController {
         return ResponseEntity.ok(Map.of("checkedOutRentals", checkedOutRentals));
     }
 
-    // 7. API: LỊCH SỬ GIAO DỊCH
-    // 7. API: LỊCH SỬ GIAO DỊCH
     @GetMapping("/history")
     public ResponseEntity<?> getHistory() {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
-        // Bóc tách dữ liệu thủ công để tránh lỗi Infinite Recursion (Document nesting depth) của Jackson
         List<Map<String, Object>> billList = billRepository.findAllByOrderByCreateDateDesc().stream()
                 .map(b -> {
                     Map<String, Object> map = new HashMap<>();
@@ -304,10 +294,6 @@ public class StaffController {
         ));
     }
 
-    // =========================================================================
-    // CÁC API POST/PUT XỬ LÝ NGHIỆP VỤ (Giữ nguyên logic của bạn)
-    // =========================================================================
-
     @PostMapping("/walk-in")
     @Transactional
     public ResponseEntity<?> createWalkInRental(@RequestBody com.hotel.system.dto.staff.WalkInRequest request) {
@@ -317,30 +303,42 @@ public class StaffController {
             List<String> roomIds = request.getRoomId();
             List<Integer> adultCounts = request.getAdultCount();
             List<Integer> childrenCounts = request.getChildrenCount();
-            Integer lengthOfStay = request.getLengthOfStay();
+            
+            RentalType type = request.getRentalType() != null ? request.getRentalType() : RentalType.HOURLY;
+            Integer inputLength = request.getLengthOfStay(); // Nếu HOURLY là số giờ, nếu DAILY là số đêm
             
             if (roomIds == null || roomIds.isEmpty()) throw new RuntimeException("Vui lòng chọn ít nhất 1 phòng.");
-            if (lengthOfStay == null || lengthOfStay < 1) throw new RuntimeException("Số giờ thuê tối thiểu là 1 giờ.");
+            if (inputLength == null || inputLength < 1) throw new RuntimeException("Số lượng giờ/đêm tối thiểu là 1.");
 
-            // 1. Ghi nhận thời gian Check-in thực tế
             LocalDateTime checkIn = request.getCheckIn() != null ? request.getCheckIn() : LocalDateTime.now();
             
-            // Chặn đặt lùi thời gian (Cho phép độ trễ mạng tối đa 5 phút)
             if (checkIn.isBefore(LocalDateTime.now().minusMinutes(5))) {
                 throw new RuntimeException("Thời gian nhận phòng không được nằm trong quá khứ.");
             }
 
-            // 2. Tính toán Check-out dự kiến
-            LocalDateTime checkOut = checkIn.plusHours(lengthOfStay);
+            LocalDateTime checkOut;
+            int lengthOfStay;
+            
+            if (type == RentalType.DAILY) {
+                // Thuê qua đêm: Mặc định checkout 12h trưa hôm sau (cộng thêm số đêm khách chọn)
+                checkOut = checkIn.toLocalDate().plusDays(inputLength).atTime(12, 0);
+                if (checkOut.isBefore(checkIn)) {
+                    checkOut = checkOut.plusDays(1); // Xử lý nếu lố 12h trưa
+                }
+                lengthOfStay = (int) Math.max(1, ChronoUnit.HOURS.between(checkIn, checkOut));
+            } else {
+                // Thuê giờ
+                lengthOfStay = inputLength;
+                checkOut = checkIn.plusHours(lengthOfStay);
+            }
 
-            // 3. Kiểm tra xung đột (Bao gồm cả thời gian dọn dẹp 30p)
+            // Kiểm tra xung đột cho tất cả các phòng
             for (String rId : roomIds) {
                 if (rentalOperationService.hasBlockingConflict(rId, checkIn, checkOut.plusMinutes(30), null)) {
                     throw new RuntimeException("Phòng đã bị đặt trong khung giờ này. Vui lòng tải lại trang.");
                 }
             }
             
-            // Xử lý thông tin khách hàng
             String existingCustomerPid = request.getExistingCustomerPid();
             Customer customer = null;
             if (existingCustomerPid != null && !existingCustomerPid.trim().isEmpty()) {
@@ -384,7 +382,6 @@ public class StaffController {
                 accountStatusRepository.save(accStatus);
             }
 
-            // 4. Tạo lệnh thuê đưa vào "Chờ Cọc"
             Rental rental = new Rental();
             rental.setId(AppUtils.generateId("REN", 10));
             rental.setRentDate(LocalDateTime.now());
@@ -399,11 +396,21 @@ public class StaffController {
                 detail.setId(AppUtils.generateId("RDT", 10));
                 detail.setRental(rental);
                 detail.setRoom(room);
-                detail.setCheckinDate(checkIn); // Lưu chính xác phút lẻ
+                detail.setCheckinDate(checkIn);
                 detail.setLengthOfStay(lengthOfStay);
+                detail.setRentalType(type); // Gán hình thức thuê
+                
+                double basePrice = 0.0;
+                if (type == RentalType.DAILY) {
+                    basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() : 
+                                (room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
+                } else {
+                    basePrice = room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
+                }
+                
                 detail.setAdultCount(adultCounts.get(i));
                 detail.setChildrenCount(childrenCounts.get(i));
-                detail.setUnitPrice(room.getRoomType().getBasePrice());
+                detail.setUnitPrice(basePrice);
                 detail.setStatus(RentalDetailStatus.PENDING); 
                 rentalDetailRepository.save(detail);
             }
@@ -536,7 +543,11 @@ public class StaffController {
         finalBill.setType(billingSummary.billType());
         finalBill.setActualStayHours(billingSummary.actualStayHours());
         finalBill.setActualRoomAmount(billingSummary.roomAmount());
-        finalBill.setEarlyCheckoutPenaltyPercent(billingSummary.earlyCheckoutPenaltyPercent());
+        
+        // CHỖ FIX LỖI: Cập nhật 2 trường phụ thu mới thay cho dòng cũ bị gạch đỏ
+        finalBill.setEarlyCheckinSurcharge(billingSummary.earlyCheckinSurcharge());
+        finalBill.setLateCheckoutSurcharge(billingSummary.lateCheckoutSurcharge());
+        
         finalBill.setRental(rental);
         billRepository.save(finalBill);
 
@@ -593,10 +604,6 @@ public class StaffController {
         }
         return ResponseEntity.badRequest().body(Map.of("error", "Phòng không ở trạng thái cần dọn dẹp."));
     }
-
-    // =========================================================================
-    // PRIVATE HELPER METHODS
-    // =========================================================================
 
     private int normalizeTimelineOffsetHours(Integer timelineOffsetHours) {
         if (timelineOffsetHours == null) return 0;

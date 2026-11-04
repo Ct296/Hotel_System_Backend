@@ -23,6 +23,7 @@ import com.hotel.system.dto.room.RoomTypeRequest;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/manager/operation")
@@ -100,10 +101,6 @@ public class ManagerOperationController {
         return ResponseEntity.ok(response);
     }
 
-    // ==========================================
-    // API QUẢN LÝ LOẠI PHÒNG (CHUẨN RESTful)
-    // ==========================================
-
     @GetMapping("/room-types")
     public ResponseEntity<?> getAllRoomTypes() {
         if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Access Denied"));
@@ -132,11 +129,8 @@ public class ManagerOperationController {
         roomType.setUpdateDate(LocalDateTime.now());
         
         mapRoomTypeData(roomType, request, trimmedName);
-        
-        // Bắt buộc lưu RoomType trước để có dữ liệu trong DB
         roomTypeRepository.save(roomType);
         
-        // --- Tự tay lưu Tiện ích ---
         if (request.getAmenityIds() != null && !request.getAmenityIds().isEmpty()) {
             amenityRepository.findAllById(request.getAmenityIds()).forEach(amenity -> {
                 RoomAmenity ra = new RoomAmenity();
@@ -165,25 +159,20 @@ public class ManagerOperationController {
 
         roomType.setUpdateDate(LocalDateTime.now());
         mapRoomTypeData(roomType, request, trimmedName);
-        
-        // Bắt buộc lưu RoomType trước
         roomTypeRepository.save(roomType);
         
-        // --- Xử lý Cập nhật Tiện ích bằng tay ---
         List<String> selectedIds = request.getAmenityIds() != null ? request.getAmenityIds() : new ArrayList<>();
-        
-        // Lấy danh sách tiện ích cũ trong DB
         List<RoomAmenity> currentAmenities = roomAmenityRepository.findByRoomType(roomType);
-        List<String> currentIds = currentAmenities.stream().map(ra -> ra.getAmenity().getId()).toList();
+        List<String> currentIds = currentAmenities.stream().map(ra -> ra.getAmenity().getId()).collect(Collectors.toList());
         
-        // Xóa những tiện ích bị người dùng bỏ tick
+        // Find amenities to delete
         List<RoomAmenity> toDelete = currentAmenities.stream()
             .filter(ra -> !selectedIds.contains(ra.getAmenity().getId()))
-            .toList();
+            .collect(Collectors.toList());
         roomAmenityRepository.deleteAll(toDelete);
-        
-        // Thêm những tiện ích người dùng mới tick vào
-        List<String> newIds = selectedIds.stream().filter(aid -> !currentIds.contains(aid)).toList();
+
+        // Find amenities to add
+        List<String> newIds = selectedIds.stream().filter(aid -> !currentIds.contains(aid)).collect(Collectors.toList());
         if (!newIds.isEmpty()) {
             amenityRepository.findAllById(newIds).forEach(amenity -> {
                 RoomAmenity ra = new RoomAmenity();
@@ -208,7 +197,6 @@ public class ManagerOperationController {
         }
     }
 
-    // Hàm hỗ trợ map dữ liệu
     private void mapRoomTypeData(RoomType roomType, RoomTypeRequest request, String trimmedName) {
         roomType.setName(trimmedName);
         roomType.setAdultMax(request.getAdultMax());
@@ -216,13 +204,11 @@ public class ManagerOperationController {
         roomType.setBed(request.getBed() == null ? "" : request.getBed().trim());
         roomType.setArea(request.getArea());
         roomType.setBasePrice(request.getBasePrice());
+        // THÊM: Map trường dailyPrice từ Request sang Entity
+        roomType.setDailyPrice(request.getDailyPrice());
         roomType.setDepositPercent(request.getDepositPercent());
         roomType.setDescription(request.getDescription() == null || request.getDescription().isBlank() ? null : request.getDescription().trim());
     }
-
-    // ==========================================
-    // CÁC API KHÁC GIỮ NGUYÊN
-    // ==========================================
 
     @PostMapping("/rooms")
     @Transactional
@@ -605,99 +591,5 @@ public class ManagerOperationController {
         stats.put("monthlyServices", monthlyServices);
 
         return ResponseEntity.ok(stats);
-    }
-
-    // ==========================================
-    // API QUẢN LÝ SỰ CỐ (INCIDENT)
-    // ==========================================
-    @GetMapping("/incidents")
-    public ResponseEntity<?> getAllIncidents() {
-        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        
-        List<Incident> incidents = incidentRepository.findAllByOrderByOccurTimeDesc();
-        List<Map<String, Object>> result = new ArrayList<>();
-        
-        for (Incident i : incidents) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("id", i.getId());
-            map.put("name", i.getName());
-            map.put("occurTime", i.getOccurTime());
-            map.put("description", i.getDescription());
-            map.put("responsible", i.getResponsible());
-            map.put("money", i.getMoney());
-            map.put("handle", i.getHandle());
-            map.put("status", i.getStatus());
-            
-            if (i.getRentalDetail() != null) {
-                map.put("rentalDetailId", i.getRentalDetail().getId());
-                if (i.getRentalDetail().getRoom() != null) {
-                    // Trả về số phòng đang gặp sự cố để Frontend hiển thị cho dễ nhìn
-                    map.put("roomName", i.getRentalDetail().getRoom().getName()); 
-                }
-            }
-            result.add(map);
-        }
-        
-        // Trả thêm danh sách RentalDetail (đang ở) để lúc thêm sự cố biết chọn phòng nào
-        List<RentalDetail> activeRentals = rentalDetailRepository.findAll().stream()
-                .filter(rd -> rd.getStatus() == null || 
-                              "IN_PROGRESS".equals(rd.getStatus().name()) || 
-                              "CHECKED_IN".equals(rd.getStatus().name())) 
-                .toList();
-        
-        List<Map<String, Object>> rentals = new ArrayList<>();
-        for (RentalDetail rd : activeRentals) {
-            if(rd.getRoom() != null) {
-                rentals.add(Map.of("id", rd.getId(), "roomName", rd.getRoom().getName()));
-            }
-        }
-        
-        return ResponseEntity.ok(Map.of("incidents", result, "activeRentals", rentals));
-    }
-
-    @PostMapping("/incidents")
-    @Transactional
-    public ResponseEntity<?> saveIncident(@RequestBody Map<String, Object> payload) {
-        if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        
-        String id = (String) payload.get("id");
-        boolean isCreate = id == null || id.isBlank();
-        Incident incident = isCreate ? new Incident() : incidentRepository.findById(id).orElse(null);
-        
-        if (incident == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy sự cố"));
-
-        // THÊM LOGIC CHẶN SỬA PHIẾU ĐÃ GIẢI QUYẾT
-        if (!isCreate && incident.getStatus() != null && "RESOLVED".equals(incident.getStatus().toString())) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Không thể sửa phiếu sự cố đã giải quyết xong để đảm bảo lưu vết."));
-        }
-
-        if (isCreate) {
-            incident.setId(AppUtils.generateId("ICD", 10));
-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-            if (auth.getPrincipal() instanceof UserDetails userDetails) {
-                usersRepository.findByEmail(userDetails.getUsername()).ifPresent(incident::setCreatedBy);
-            }
-        }
-
-        incident.setName((String) payload.get("name"));
-        incident.setDescription((String) payload.get("description"));
-        incident.setOccurTime(LocalDateTime.parse(payload.get("occurTime").toString()));
-        incident.setResponsible((String) payload.get("responsible"));
-        
-        Object moneyObj = payload.get("money");
-        incident.setMoney(moneyObj != null && !moneyObj.toString().isBlank() ? Double.valueOf(moneyObj.toString()) : 0.0);
-        
-        incident.setHandle((String) payload.get("handle"));
-        
-        // Tùy DB của bạn dùng String hay Enum mà ép kiểu cho đúng
-        incident.setStatus(com.hotel.system.entity.enums.IncidentStatus.valueOf((String) payload.get("status"))); 
-        
-        String rentalDetailId = (String) payload.get("rentalDetailId");
-        if (rentalDetailId != null && !rentalDetailId.isBlank()) {
-            rentalDetailRepository.findById(rentalDetailId).ifPresent(incident::setRentalDetail);
-        }
-
-        incidentRepository.save(incident);
-        return ResponseEntity.ok(Map.of("message", isCreate ? "Tạo sự cố thành công!" : "Cập nhật sự cố thành công!"));
     }
 }

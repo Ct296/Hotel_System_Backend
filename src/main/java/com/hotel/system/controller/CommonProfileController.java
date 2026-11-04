@@ -44,7 +44,6 @@ public class CommonProfileController {
         return null;
     }
 
-
     @GetMapping("")
     public ResponseEntity<?> getMyProfile() {
         Users currentUser = getLoggedInInternalUser();
@@ -53,8 +52,6 @@ public class CommonProfileController {
         // Trả về full object User (hoặc map ra DTO nếu muốn giấu password)
         return ResponseEntity.ok(currentUser);
     }
-
-
 
     @PutMapping("/update")
     public ResponseEntity<?> updateProfile(@Valid @ModelAttribute ProfileUpdateRequest request, BindingResult bindingResult) {

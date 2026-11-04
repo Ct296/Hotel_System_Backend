@@ -39,22 +39,21 @@ public class CustomerBookingService {
         // 1. Kiểm tra trùng lịch và sức chứa cho từng phòng
         for (int i = 0; i < selectedRooms.size(); i++) {
             Room room = selectedRooms.get(i);
-
             if (rentalOperationService.hasBlockingConflict(room.getId(), checkIn, checkOut.plusMinutes(30), null)) {
-                throw new IllegalStateException("Phòng " + room.getName() + " đã có người đặt trong khung giờ này.");
+                throw new IllegalStateException("Phòng " + room.getName() + " đã được đặt trong khung giờ này.");
             }
 
             int adults = request.getAdultCounts().get(i);
             int children = request.getChildrenCounts().get(i);
             int maxAdults = room.getRoomType().getAdultMax() != null ? room.getRoomType().getAdultMax() : 0;
             int maxChildren = room.getRoomType().getChildrenMax() != null ? room.getRoomType().getChildrenMax() : 0;
-
             if (adults < 1 || adults > maxAdults || children < 0 || children > maxChildren) {
                 throw new IllegalArgumentException("Số lượng khách không hợp lệ cho phòng " + room.getName());
             }
         }
 
         int stayHours = (int) Math.max(ChronoUnit.HOURS.between(checkIn, checkOut), MINIMUM_STAY_HOURS);
+        RentalType type = request.getRentalType() != null ? request.getRentalType() : RentalType.HOURLY;
 
         // 2. Tạo Booking chính (Rental)
         Rental rental = new Rental();
@@ -68,16 +67,18 @@ public class CustomerBookingService {
         rental.setCustomer(customer);
         rentalRepository.save(rental);
 
-        // 3. Tạo chi tiết cho từng phòng
+        // 3. Tạo chi tiết cho từng phòng (cùng thời gian thuê)
         for (int i = 0; i < selectedRooms.size(); i++) {
             Room room = selectedRooms.get(i);
             RentalDetail detail = new RentalDetail();
             detail.setId(AppUtils.generateId("RDT", 10));
             detail.setCheckinDate(checkIn);
             detail.setLengthOfStay(stayHours);
+            detail.setRentalType(type); // Gán hình thức thuê (Hourly/Daily)
+            
             detail.setAdultCount(request.getAdultCounts().get(i));
             detail.setChildrenCount(request.getChildrenCounts().get(i));
-            detail.setUnitPrice(resolveRoomUnitPrice(room, checkIn));
+            detail.setUnitPrice(resolveRoomUnitPrice(room, checkIn, type));
             detail.setStatus(RentalDetailStatus.PENDING);
             detail.setRoom(room);
             detail.setRental(rental);
@@ -97,35 +98,38 @@ public class CustomerBookingService {
         }
         
         if (!Boolean.TRUE.equals(rental.getIsBooking())) {
-            throw new IllegalArgumentException("Chỉ áp dụng cho booking đặt trước.");
+            throw new IllegalArgumentException("Chức năng chỉ dành cho booking đặt trước.");
         }
         
-        // Chỉ cho phép hủy khi booking đang ở trạng thái PENDING (Chờ cọc) hoặc CONFIRMED (Đã cọc/Xác nhận)
         if (rental.getStatus() != RentalStatus.PENDING && rental.getStatus() != RentalStatus.CONFIRMED) {
             throw new IllegalArgumentException("Booking này không thể hủy do đang ở trạng thái không cho phép.");
         }
 
-        // Lấy số tiền cọc đã thanh toán (nếu có)
         double depositPaid = billingService.calculateDepositPaid(rental.getId());
         boolean wasConfirmed = rental.getStatus() == RentalStatus.CONFIRMED;
-                 
-        // Chuyển trạng thái hóa đơn và các phòng chi tiết sang Đã Hủy (CANCELLED)
+
         rental.setStatus(RentalStatus.CANCELLED);
         if (rental.getRentalDetails() != null) {
             for(RentalDetail detail : rental.getRentalDetails()) {
                 detail.setStatus(RentalDetailStatus.CANCELLED);
             }
         }
-                 
         rentalRepository.save(rental);
         
-        // Trả về số tiền cọc để hiển thị thông báo mất cọc, nếu chưa cọc thì trả về 0
         return wasConfirmed ? depositPaid : 0.0;
     }
 
-    private double resolveRoomUnitPrice(Room room, LocalDateTime checkInDate) {
+    // Áp giá Daily hay Hourly dựa vào RentalType
+    private double resolveRoomUnitPrice(Room room, LocalDateTime checkInDate, RentalType rentalType) {
         if (room == null || room.getRoomType() == null) return 0.0;
-        double basePrice = room.getRoomType().getBasePrice() == null ? 0.0 : room.getRoomType().getBasePrice();
+        
+        double basePrice = 0.0;
+        if (rentalType == RentalType.DAILY) {
+            basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() : 
+                        (room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
+        } else {
+            basePrice = room.getRoomType().getBasePrice() == null ? 0.0 : room.getRoomType().getBasePrice();
+        }
         
         AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(room.getRoomType().getId())
                 .stream()
