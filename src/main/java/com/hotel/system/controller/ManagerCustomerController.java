@@ -166,6 +166,18 @@ public class ManagerCustomerController {
         return ResponseEntity.badRequest().body(Map.of("error", "Không được đổi hạng khách hàng thủ công. Hạng sẽ tự động tính theo tổng bill."));
     }
 
+    // API ĐỒNG BỘ HẠNG THẺ
+    @PostMapping("/sync-tiers")
+    public ResponseEntity<?> syncAllTiers() {
+        if (!hasCustomerAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        try {
+            customerTierService.syncAllCustomersTiers();
+            return ResponseEntity.ok(Map.of("message", "Đồng bộ hạng thẻ thành công."));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi đồng bộ: " + e.getMessage()));
+        }
+    }
+
     @PostMapping("/ai/export")
     public ResponseEntity<?> exportReviewAiAnalysis() {
         if (!hasCustomerAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

@@ -6,6 +6,10 @@ import com.hotel.system.entity.Users;
 import com.hotel.system.entity.enums.Role;
 import com.hotel.system.repository.UsersRepository;
 import com.hotel.system.service.ProfileService;
+import com.hotel.system.repository.AccountStatusRepository;
+import com.hotel.system.entity.AccountStatus;
+import java.util.List;
+
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,6 +32,7 @@ public class CommonProfileController {
 
     private final ProfileService profileService;
     private final UsersRepository usersRepository;
+    private final AccountStatusRepository accountStatusRepository;
 
     private Users getLoggedInInternalUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -35,7 +40,6 @@ public class CommonProfileController {
             Optional<Users> userOpt = usersRepository.findByEmail(userDetails.getUsername());
             if (userOpt.isPresent()) {
                 Users user = userOpt.get();
-                // Chỉ nội bộ mới được dùng API này
                 if (user.getRole() != null && user.getRole() != Role.CUSTOMER) {
                     return user;
                 }
@@ -67,7 +71,7 @@ public class CommonProfileController {
             return ResponseEntity.ok(Map.of(
                 "message", "Cập nhật hồ sơ thành công.",
                 "user", Map.of(
-                    "fullName", updatedUser.getLastName() + " " + updatedUser.getFirstName(),
+                    "fullName", updatedUser.getFirstName() + " " + updatedUser.getLastName(),
                     "avatar", updatedUser.getAvatar() != null ? updatedUser.getAvatar() : ""
                 )
             ));
@@ -91,6 +95,16 @@ public class CommonProfileController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @GetMapping("/account-statuses")
+    public ResponseEntity<?> getAccountStatuses() {
+        Users currentUser = getLoggedInInternalUser();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        
+        List<AccountStatus> statuses = accountStatusRepository
+                .findByAccount_User_IdOrderByStartTimeDesc(currentUser.getId());
+        return ResponseEntity.ok(statuses);
     }
 }
 

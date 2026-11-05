@@ -45,7 +45,7 @@ public class ManagerController {
         Map<String, Object> profile = new HashMap<>();
         profile.put("id", currentUser.getId());
         profile.put("email", currentUser.getEmail());
-        profile.put("fullName", currentUser.getLastName() + " " + currentUser.getFirstName());
+        profile.put("fullName", currentUser.getFirstName() + " " + currentUser.getLastName());
         profile.put("role", currentUser.getRole());
 
         if (currentUser.getRole() == Role.MANAGER) {

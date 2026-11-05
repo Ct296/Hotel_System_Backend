@@ -223,7 +223,7 @@ public class ManagerHrController {
         for (Users u : staffs) {
             Map<String, Object> map = new HashMap<>();
             map.put("id", u.getId());
-            map.put("fullName", u.getLastName() + " " + u.getFirstName());
+            map.put("fullName", u.getFirstName() + " " + u.getLastName());
             map.put("email", u.getEmail());
             map.put("phone", u.getPhoneNumber());
             map.put("gender", u.getSex() != null ? u.getSex().name() : "UNSPECIFIED");

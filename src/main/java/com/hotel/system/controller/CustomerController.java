@@ -1,5 +1,7 @@
 package com.hotel.system.controller;
 
+import com.hotel.system.repository.AccountStatusRepository;
+import com.hotel.system.entity.AccountStatus;
 import com.hotel.system.dto.customer.BookingConfirmRequest;
 import com.hotel.system.dto.profile.ChangePasswordRequest;
 import com.hotel.system.dto.profile.ProfileUpdateRequest;
@@ -59,6 +61,7 @@ public class CustomerController {
     private final ServiceRepository serviceRepository;
     private final AppliedPeriodRepository appliedPeriodRepository;
     private final UsersRepository usersRepository;
+    private final AccountStatusRepository accountStatusRepository;
 
     private final VnpayService vnpayService;
     private final CustomerBookingService customerBookingService;
@@ -78,6 +81,7 @@ public class CustomerController {
                               ReviewRepository reviewRepository, BillRepository billRepository,
                               PaymentRepository paymentRepository, ServiceRepository serviceRepository,
                               AppliedPeriodRepository appliedPeriodRepository, UsersRepository usersRepository,
+                              AccountStatusRepository accountStatusRepository,
                               VnpayService vnpayService, CustomerBookingService customerBookingService,
                               ProfileService profileService, RentalOperationService rentalOperationService,
                               CustomerTierService customerTierService) {
@@ -93,6 +97,7 @@ public class CustomerController {
         this.serviceRepository = serviceRepository;
         this.appliedPeriodRepository = appliedPeriodRepository;
         this.usersRepository = usersRepository;
+        this.accountStatusRepository = accountStatusRepository;
         this.vnpayService = vnpayService;
         this.customerBookingService = customerBookingService;
         this.profileService = profileService;
@@ -537,6 +542,16 @@ public class CustomerController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @GetMapping("/api/customer/profile/account-statuses")
+    public ResponseEntity<?> getCustomerAccountStatuses() {
+        Users currentUser = getLoggedInCustomer();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        
+        List<AccountStatus> statuses = accountStatusRepository
+                .findByAccount_User_IdOrderByStartTimeDesc(currentUser.getId());
+        return ResponseEntity.ok(statuses);
     }
 
     @GetMapping("/api/customer/feedback/my")

@@ -51,6 +51,17 @@ public interface BillRepository extends JpaRepository<Bill, String> {
     // 3. Danh sách phòng Check-in / Check-out hôm nay
     @Query(value = "SELECT * FROM RENTAL_DETAIL WHERE DATE(RENTAL_DETAIL_CheckinDate) = CURRENT_DATE OR DATE(RENTAL_DETAIL_CheckinDate + RENTAL_DETAIL_LengthOfStay * INTERVAL '1 day') = CURRENT_DATE", nativeQuery = true)
     List<RentalDetail> findTodayTasks();
-
+    
+    @Query("""
+        select rt.name, coalesce(sum(b.totalAmount), 0)
+        from Bill b
+        join b.rental r
+        join r.rentalDetails rd
+        join rd.room room
+        join room.roomType rt
+        where b.type = 'FINAL'
+        group by rt.name
+    """)
+    List<Object[]> sumRevenueByRoomType();
     
 }

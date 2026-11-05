@@ -512,21 +512,66 @@ public class ManagerOperationController {
             "maintenanceRooms", maintenance
         ));
 
-        // 3. LỊCH TRÌNH HÔM NAY 
+        // 3. DOANH THU THEO LOẠI PHÒNG (Cho Biểu đồ tròn số 2)
+        List<Object[]> roomTypeRevQuery = billRepository.sumRevenueByRoomType();
+        List<String> roomTypeNames = new ArrayList<>();
+        List<Double> roomTypeRevenues = new ArrayList<>();
+        for (Object[] row : roomTypeRevQuery) {
+            roomTypeNames.add((String) row[0]);
+            roomTypeRevenues.add(((Number) row[1]).doubleValue());
+        }
+        stats.put("roomTypeRevLabels", roomTypeNames);
+        stats.put("roomTypeRevValues", roomTypeRevenues);
+
+        // 4. DOANH THU THEO DỊCH VỤ (Cho Biểu đồ tròn số 3)
+        List<Object[]> serviceRevQuery = serviceUsageRepository.sumRevenueByService();
+        List<String> serviceNames = new ArrayList<>();
+        List<Double> serviceRevenues = new ArrayList<>();
+        for (Object[] row : serviceRevQuery) {
+            serviceNames.add((String) row[0]);
+            serviceRevenues.add(((Number) row[1]).doubleValue());
+        }
+        stats.put("serviceRevLabels", serviceNames);
+        stats.put("serviceRevValues", serviceRevenues);
+
+        // 5. TOP HẠNG PHÒNG ĐẶT NHIỀU (Có thể nhận tham số tháng/năm từ request hoặc mặc định hiện tại)
+        int currentMonth = java.time.LocalDate.now().getMonthValue();
+        int currentYear = java.time.LocalDate.now().getYear();
+        List<Object[]> topRoomsQuery = rentalDetailRepository.getTopRoomTypesByMonth(currentMonth, currentYear);
+        List<Map<String, Object>> topRoomsList = new ArrayList<>();
+        for (Object[] row : topRoomsQuery) {
+            topRoomsList.add(Map.of(
+                "name", row[0],
+                "count", row[1],
+                "revenue", row[2] != null ? row[2] : 0.0
+            ));
+        }
+        stats.put("topRoomsList", topRoomsList);
+
+        // 6. SỐ LƯỢT THUÊ THEO TUẦN (Cho Biểu đồ cột tuần)
+        List<Object[]> weeklyQuery = rentalDetailRepository.getWeeklyBookingCounts();
+        long[] weeklyCounts = new long[7]; // Từ Thứ 2 đến Chủ Nhật
+        for (Object[] row : weeklyQuery) {
+            int dow = ((Number) row[0]).intValue(); // 1 là Thứ Hai, 7 là Chủ Nhật trong ISO DOW
+            long count = ((Number) row[1]).longValue();
+            if (dow >= 1 && dow <= 7) {
+                weeklyCounts[dow - 1] = count;
+            }
+        }
+        stats.put("weeklyBookings", weeklyCounts);
+
+        // --- CÁC DỮ LIỆU CŨ ĐÃ CÓ SẴN ---
         List<RentalDetail> tasks = rentalDetailRepository.findTodayTasks();
         List<Map<String, Object>> todayTasks = new ArrayList<>();
         java.time.LocalDate today = java.time.LocalDate.now();
-        
         for (RentalDetail rd : tasks) {
             if (rd.getCheckinDate() == null) continue;
             java.time.LocalDate checkInDate = rd.getCheckinDate().toLocalDate();
-            
             boolean isCheckIn = checkInDate.isEqual(today);
-            
             todayTasks.add(Map.of(
                 "id", rd.getId(),
                 "customerName", rd.getRental().getCustomer().getId(),
-                "roomName", rd.getRoom().getId(), 
+                "roomName", rd.getRoom().getName(),
                 "type", isCheckIn ? "CHECK_IN" : "CHECK_OUT",
                 "time", isCheckIn ? rd.getCheckinDate().toLocalTime().toString() : rd.getCheckinDate().plusDays(rd.getLengthOfStay() != null ? rd.getLengthOfStay() : 1).toLocalTime().toString(),
                 "status", rd.getStatus().name()
@@ -534,7 +579,6 @@ public class ManagerOperationController {
         }
         stats.put("todayTasks", todayTasks);
 
-        // 4. TOP 5 DỊCH VỤ 
         List<Object[]> top5Query = serviceUsageRepository.getTop5ServicesThisMonth(org.springframework.data.domain.PageRequest.of(0, 5));
         List<Map<String, Object>> topServices = new ArrayList<>();
         for (Object[] row : top5Query) {
@@ -542,7 +586,6 @@ public class ManagerOperationController {
         }
         stats.put("topServices", topServices);
 
-        // 5. BIỂU ĐỒ DOANH THU 12 THÁNG 
         Map<String, List<Double>> monthlyRevenue = new HashMap<>();
         int[] yearsToFetch = {2024, 2025, 2026};
         for (int year : yearsToFetch) {
@@ -558,13 +601,10 @@ public class ManagerOperationController {
         }
         stats.put("monthlyRevenue", monthlyRevenue);
 
-        // 6. BIỂU ĐỒ DỊCH VỤ 12 THÁNG 
         Map<String, Map<String, List<Long>>> monthlyServices = new HashMap<>();
         List<Service> allServices = serviceRepository.findAll();
-        
         for (int year : yearsToFetch) {
             Map<String, List<Long>> yearServiceData = new HashMap<>();
-            
             Long[] allSvcArray = new Long[12];
             java.util.Arrays.fill(allSvcArray, 0L);
             List<Object[]> allSvcData = serviceUsageRepository.getMonthlyAllServicesUsage(year);

@@ -34,4 +34,13 @@ public interface ServiceUsageRepository extends JpaRepository<ServiceUsage, Stri
     // 3. Tổng lượt dùng tất cả dịch vụ 12 tháng
     @Query(value = "SELECT EXTRACT(MONTH FROM SERVICE_USAGE_Time) as month, SUM(SERVICE_USAGE_Count) FROM SERVICE_USAGE WHERE EXTRACT(YEAR FROM SERVICE_USAGE_Time) = :year GROUP BY EXTRACT(MONTH FROM SERVICE_USAGE_Time)", nativeQuery = true)
     List<Object[]> getMonthlyAllServicesUsage(@Param("year") int year);
+
+    @Query("""
+        select s.name, coalesce(sum(su.count * su.unitPrice), 0)
+        from ServiceUsage su
+        join su.service s
+        group by s.name
+    """)
+    List<Object[]> sumRevenueByService();
+
 }

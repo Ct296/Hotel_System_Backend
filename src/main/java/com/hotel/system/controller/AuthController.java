@@ -117,7 +117,7 @@ public class AuthController {
         Map<String, Object> userMap = new HashMap<>();
         userMap.put("id", user.getId());
         userMap.put("email", user.getEmail());
-        userMap.put("fullName", user.getLastName() + " " + user.getFirstName());
+        userMap.put("fullName", user.getFirstName() + " " + user.getLastName());
         userMap.put("avatar", user.getAvatar() != null ? user.getAvatar() : "");
 
         // TỰ ĐỘNG LẤY CHỨC DANH NẾU LÀ MANAGER

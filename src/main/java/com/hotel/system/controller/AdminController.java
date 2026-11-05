@@ -3,7 +3,6 @@ package com.hotel.system.controller;
 import com.hotel.system.dto.admin.AdminCreateAccountRequest;
 import com.hotel.system.entity.Account;
 import com.hotel.system.entity.AccountStatus;
-import com.hotel.system.entity.Admin;
 import com.hotel.system.entity.Manager;
 import com.hotel.system.entity.Staff;
 import com.hotel.system.entity.Users;
@@ -13,14 +12,12 @@ import com.hotel.system.entity.enums.Role;
 import com.hotel.system.entity.enums.WorkingStatus;
 import com.hotel.system.repository.AccountRepository;
 import com.hotel.system.repository.AccountStatusRepository;
-import com.hotel.system.repository.AdminRepository;
 import com.hotel.system.repository.CustomerRepository;
 import com.hotel.system.repository.ManagerRepository;
 import com.hotel.system.repository.StaffRepository;
 import com.hotel.system.repository.UsersRepository;
 import com.hotel.system.service.AdminAccountService;
 
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -32,14 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
-import com.hotel.system.repository.BillRepository;
-import com.hotel.system.entity.Bill;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -51,7 +40,6 @@ public class AdminController {
     private final AdminAccountService adminAccountService;
     private final AccountRepository accountRepository;
     private final AccountStatusRepository accountStatusRepository;
-    private final BillRepository billRepository;
     private final UsersRepository usersRepository;
     private final CustomerRepository customerRepository;
     private final StaffRepository staffRepository;
@@ -91,38 +79,18 @@ public class AdminController {
         return latestStatus;
     }
 
-    // 1. LẤY DỮ LIỆU DASHBOARD
+    // 1. LẤY DỮ LIỆU DASHBOARD (Danh sách tài khoản)
     @GetMapping("/dashboard")
     @Transactional(readOnly = true)
-    public ResponseEntity<?> getDashboardData(@RequestParam(value = "year", required = false) Integer year) {
+    public ResponseEntity<?> getDashboardData() {
         Users currentUser = getCurrentAdmin();
         if (currentUser == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Vui lòng đăng nhập bằng tài khoản quản trị."));
         }
 
-        int selectedYear = (year != null) ? year : java.time.LocalDate.now().getYear();
-        List<Double> monthlyRevenues = new ArrayList<>(Collections.nCopies(12, 0.0));
-        double totalYearRevenue = 0.0;
-
-        // Tính doanh thu
-        List<Bill> allBills = billRepository.findAll();
-        for (Bill bill : allBills) {
-            if (bill.getCreateDate() != null && bill.getCreateDate().getYear() == selectedYear) {
-                double amount = bill.getTotalAmount() != null ? bill.getTotalAmount() : 0.0;
-                totalYearRevenue += amount;
-                int monthIndex = bill.getCreateDate().getMonthValue() - 1; 
-                monthlyRevenues.set(monthIndex, monthlyRevenues.get(monthIndex) + amount);
-            }
-        }
-
         long lockedAccountsCount = 0;
         
-        // TẠO MAP TRẠNG THÁI MANAGER & STAFF
-        Map<String, WorkingStatus> managerWorkingStatuses = new HashMap<>();
-        for (Manager m : managerRepository.findAll()) {
-            managerWorkingStatuses.put(m.getId(), m.getWorkingStatus());
-        }
-
+        // TẠO MAP TRẠNG THÁI STAFF
         Map<String, WorkingStatus> staffWorkingStatuses = new HashMap<>();
         for (Staff s : staffRepository.findAll()) {
             staffWorkingStatuses.put(s.getId(), s.getWorkingStatus());
@@ -151,15 +119,24 @@ public class AdminController {
             Map<String, Object> accInfo = new HashMap<>();
             accInfo.put("userId", userId);
             accInfo.put("email", account.getUser().getEmail());
-            accInfo.put("fullName", account.getUser().getLastName() + " " + account.getUser().getFirstName());
+            accInfo.put("fullName", account.getUser().getFirstName() + " " + account.getUser().getLastName());
             accInfo.put("role", account.getUser().getRole());
+            accInfo.put("phoneNumber", account.getUser().getPhoneNumber());
+            accInfo.put("pid", account.getUser().getPid());
+            accInfo.put("dateOfBirth", account.getUser().getDateOfBirth());
+            accInfo.put("sex", account.getUser().getSex());
+            accInfo.put("nationality", account.getUser().getNationality());
             accInfo.put("createDate", account.getUser().getCreateDate());
+
             accInfo.put("state", state);
             accInfo.put("reason", effectiveStatus != null ? effectiveStatus.getReason() : "");
             accInfo.put("unlockTime", effectiveStatus != null ? effectiveStatus.getEndTime() : null);
 
             if (account.getUser().getRole() == Role.MANAGER) {
-                accInfo.put("workingStatus", managerWorkingStatuses.get(userId));
+                managerRepository.findById(userId).ifPresent(m -> {
+                    accInfo.put("workingStatus", m.getWorkingStatus());
+                    accInfo.put("managerTitle", m.getTitle().getDisplayName());
+                });
             } else if (account.getUser().getRole() == Role.STAFF) {
                 accInfo.put("workingStatus", staffWorkingStatuses.get(userId));
             }
@@ -173,10 +150,6 @@ public class AdminController {
         response.put("totalStaffs", staffRepository.count());
         response.put("totalManagers", managerRepository.count());
         response.put("lockedAccounts", lockedAccountsCount);
-        
-        response.put("selectedYear", selectedYear);
-        response.put("monthlyRevenues", monthlyRevenues);
-        response.put("totalYearRevenue", totalYearRevenue);
         
         response.put("managerTypes", ManagerType.values());
         response.put("accounts", accountListResponse);
@@ -193,7 +166,7 @@ public class AdminController {
         Map<String, Object> profile = new HashMap<>();
         profile.put("id", currentUser.getId());
         profile.put("email", currentUser.getEmail());
-        profile.put("fullName", currentUser.getLastName() + " " + currentUser.getFirstName());
+        profile.put("fullName", currentUser.getFirstName() + " " + currentUser.getLastName());
         profile.put("role", currentUser.getRole());
         return ResponseEntity.ok(profile);
     }
@@ -277,52 +250,4 @@ public class AdminController {
         }
     }
 
-    // 7. XUẤT EXCEL
-    @GetMapping("/export-excel")
-    public void exportExcel(@RequestParam(value = "year", required = false) Integer year,
-                            HttpServletResponse response) throws IOException {
-        
-        if (getCurrentAdmin() == null) {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Access Denied");
-            return;
-        }
-
-        int selectedYear = (year != null) ? year : java.time.LocalDate.now().getYear();
-        
-        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment; filename=DoanhThu_IT_Hotel_" + selectedYear + ".xlsx");
-
-        try (Workbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet("Doanh Thu " + selectedYear);
-            
-            Row headerRow = sheet.createRow(0);
-            headerRow.createCell(0).setCellValue("Tháng");
-            headerRow.createCell(1).setCellValue("Doanh Thu (VNĐ)");
-
-            List<Double> monthlyRevenues = new ArrayList<>(Collections.nCopies(12, 0.0));
-            double total = 0.0;
-            
-            List<Bill> allBills = billRepository.findAll();
-            for (Bill bill : allBills) {
-                if (bill.getCreateDate() != null && bill.getCreateDate().getYear() == selectedYear) {
-                    double amount = bill.getTotalAmount() != null ? bill.getTotalAmount() : 0.0;
-                    int month = bill.getCreateDate().getMonthValue() - 1;
-                    monthlyRevenues.set(month, monthlyRevenues.get(month) + amount);
-                    total += amount;
-                }
-            }
-
-            for (int i = 0; i < 12; i++) {
-                Row row = sheet.createRow(i + 1);
-                row.createCell(0).setCellValue("Tháng " + (i + 1));
-                row.createCell(1).setCellValue(monthlyRevenues.get(i));
-            }
-            
-            Row totalRow = sheet.createRow(13);
-            totalRow.createCell(0).setCellValue("TỔNG CỘNG");
-            totalRow.createCell(1).setCellValue(total);
-
-            workbook.write(response.getOutputStream());
-        }
-    }
 }

@@ -28,8 +28,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-
 @RestController
+@RequestMapping("/api/manager/operation")
 @RequiredArgsConstructor
 public class IncidentApiController {
 
@@ -39,6 +39,7 @@ public class IncidentApiController {
     private final UsersRepository usersRepository;
     private final ManagerRepository managerRepository;
 
+    // Giữ nguyên logic API gốc của Staff
     @PostMapping("/api/staff/incidents/create")
     public ResponseEntity<?> createIncident(@RequestBody IncidentCreateRequest request, Principal principal) {
         try {
@@ -84,7 +85,6 @@ public class IncidentApiController {
             if (i.getRentalDetail() != null) {
                 map.put("rentalDetailId", i.getRentalDetail().getId());
                 if (i.getRentalDetail().getRoom() != null) {
-                    // Trả về số phòng đang gặp sự cố để Frontend hiển thị cho dễ nhìn
                     map.put("roomName", i.getRentalDetail().getRoom().getName()); 
                 }
             }
@@ -118,7 +118,6 @@ public class IncidentApiController {
         
         if (incident == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy sự cố"));
 
-        // THÊM LOGIC CHẶN SỬA PHIẾU ĐÃ GIẢI QUYẾT
         if (!isCreate && incident.getStatus() != null && "RESOLVED".equals(incident.getStatus().toString())) {
             return ResponseEntity.badRequest().body(Map.of("error", "Không thể sửa phiếu sự cố đã giải quyết xong để đảm bảo lưu vết."));
         }
