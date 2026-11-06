@@ -349,11 +349,19 @@ public class StaffController {
                 if (pid == null || pid.trim().isEmpty()) throw new RuntimeException("Vui lòng nhập CCCD.");
                 if (usersRepository.findByPid(pid.trim()).isPresent()) throw new RuntimeException("CCCD/Hộ chiếu đã có trên hệ thống!");
 
+                String email = request.getEmail();
+                if (email == null || email.trim().isEmpty()) {
+                    throw new RuntimeException("Vui lòng nhập Email của khách hàng.");
+                }
+                if (usersRepository.findByEmail(email.trim()).isPresent()) {
+                    throw new RuntimeException("Email này đã được sử dụng bởi một tài khoản khác!");
+                }
+
                 Users newUser = new Users();
                 newUser.setId(AppUtils.generateId("USR", 10));
                 newUser.setLastName(request.getLastName());
                 newUser.setFirstName(request.getFirstName());
-                newUser.setEmail(request.getEmail());
+                newUser.setEmail(email.trim());
                 newUser.setPid(pid);
                 newUser.setPhoneNumber(request.getPhoneNumber());
                 newUser.setNationality(request.getNationality());
@@ -621,5 +629,23 @@ public class StaffController {
         if (value == null) return null;
         int flooredMinute = value.getMinute() < 30 ? 0 : 30;
         return value.withMinute(flooredMinute).withSecond(0).withNano(0);
+    }
+
+    @GetMapping("/customers/by-pid/{pid}")
+    public ResponseEntity<?> getCustomerByPid(@PathVariable String pid) {
+        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        Optional<Users> userOpt = usersRepository.findByPid(pid.trim());
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Không tìm thấy khách hàng."));
+        }
+
+        Users user = userOpt.get();
+        Optional<Customer> customerOpt = customerRepository.findByUser(user);
+        if (customerOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Tài khoản không thuộc về khách hàng."));
+        }
+
+        return ResponseEntity.ok(customerOpt.get());
     }
 }

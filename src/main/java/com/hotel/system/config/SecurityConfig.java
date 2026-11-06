@@ -37,7 +37,8 @@ public class SecurityConfig {
                 
                 //Các API công khai
                 .requestMatchers("/api/auth/**", "/api/public/**", "/uploads/**", "/image/**", "/api/kiosk/**").permitAll()
-   
+                .requestMatchers("/api/chat").permitAll()
+
                 //Phân quyền API theo Role
                 .requestMatchers("/api/admin/**").hasAuthority("ADMIN")
                 .requestMatchers("/api/manager/**").hasAnyAuthority("MANAGER", "ADMIN")

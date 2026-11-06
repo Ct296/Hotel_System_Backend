@@ -1,7 +1,5 @@
 package com.hotel.system.controller;
 
-import com.hotel.system.repository.AccountStatusRepository;
-import com.hotel.system.entity.AccountStatus;
 import com.hotel.system.dto.customer.BookingConfirmRequest;
 import com.hotel.system.dto.profile.ChangePasswordRequest;
 import com.hotel.system.dto.profile.ProfileUpdateRequest;
@@ -69,7 +67,7 @@ public class CustomerController {
     private final RentalOperationService rentalOperationService;
     private final CustomerTierService customerTierService;
 
-    @Value("${payment.vnpay.frontend-return-url:http://localhost:5173/customer/profile}")
+    @Value("${payment.vnpay.frontend-return-url:https://ithotel.ct296.id.vn/customer/profile}")
     private String frontendReturnUrl;
 
     private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice, String eventName, double surchargeAmount) {}

@@ -43,7 +43,12 @@ public class ChatController {
         String message = body.getOrDefault("message", "");
         // Lấy User từ JWT thay vì Session cũ
         Users currentUser = getCurrentUser();
-        // Gọi service xử lý chat (vẫn dùng session để giữ lịch sử hội thoại )
+        
+        if (currentUser != null && currentUser.getRole() != com.hotel.system.entity.enums.Role.CUSTOMER) {
+            Map<String, Object> errorResult = new HashMap<>();
+            errorResult.put("reply", "Xin lỗi, chatbot hỗ trợ AI chỉ dành cho khách hàng.");
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).body(errorResult);
+        }
         String reply = chatService.reply(message, currentUser, session);
 
         Map<String, Object> result = new HashMap<>();
@@ -51,4 +56,6 @@ public class ChatController {
 
         return ResponseEntity.ok(result);
     }
+
+    
 }

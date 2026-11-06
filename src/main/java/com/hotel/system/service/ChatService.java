@@ -93,11 +93,11 @@ public class ChatService {
         }
 
         if (!isAllowed(normalizedMessage)) {
-            return """
-                    Mình chỉ hỗ trợ cung cấp thông tin và hướng dẫn trong hệ thống khách sạn.
-                    Mình không thể thao tác thay bạn như đặt phòng, hủy booking, sửa dữ liệu hay thanh toán hộ.
-                    Nếu bạn cần thực hiện thao tác, vui lòng dùng chức năng trên website hoặc liên hệ lễ tân.
-                    """;
+        return """
+                Mình là trợ lý ảo của ITHotel và chỉ cung cấp thông tin, hướng dẫn trong phạm vi dịch vụ của khách sạn.
+                Mình không thể thực hiện các lệnh hệ thống, chạy mã lệnh, hoặc thao tác thay bạn (đặt phòng, hủy phòng, thanh toán...).
+                Vui lòng thao tác trực tiếp trên website hoặc liên hệ Lễ tân nếu cần hỗ trợ nhé.
+                """;
         }
 
         String rateLimitKey = resolveRateLimitKey(currentUser, session);
@@ -130,20 +130,44 @@ public class ChatService {
     }
 
     private boolean isAllowed(String message) {
+        if (message == null || message.isBlank()) return false;
         String lower = message.toLowerCase(Locale.ROOT);
 
-        List<String> blockedPatterns = List.of(
-                "hãy đặt phòng", "đặt giúp", "book giúp", "hãy hủy", "hủy giúp",
-                "thanh toán giúp", "trả tiền giúp", "xóa booking", "sửa booking",
-                "thay đổi booking", "làm giúp tôi", "thực hiện giúp",
-                "đặt hộ", "hủy hộ", "book hộ", "thanh toán hộ"
+        // 1. Chặn các yêu cầu thao tác nghiệp vụ
+        List<String> businessBlockedPatterns = List.of(
+                "đặt giúp", "book giúp", "book hộ", "hủy phòng", "hủy booking", "hủy giúp",
+                "thanh toán giúp", "thanh toán hộ", "trả tiền giúp", "xóa booking", 
+                "sửa booking", "thay đổi booking", "làm giúp", "thực hiện giúp", 
+                "hoàn tiền", "refund"
         );
 
-        for (String pattern : blockedPatterns) {
+        // 2. Chặn các lệnh thực thi, hack prompt, injection
+        List<String> executionBlockedPatterns = List.of(
+                // Prompt Injection & Đổi Persona
+                "bỏ qua", "ignore", "forget", "quên", "system prompt", "hướng dẫn hệ thống", 
+                "system instruction", "đóng vai", "bạn là", "act as", "you are",
+                // System Commands
+                "thực thi", "chạy lệnh", "exec ", "execute", "cmd", "bash", "terminal",
+                // XSS & Code Injection cơ bản
+                "<script", "javascript:", "onload=", "onerror=", "<?php",
+                // SQL Injection cơ bản
+                "drop table", "select *", "delete from", "update table", "insert into"
+        );
+
+        // Kiểm tra chặn nghiệp vụ
+        for (String pattern : businessBlockedPatterns) {
             if (lower.contains(pattern)) {
                 return false;
             }
         }
+
+        // Kiểm tra chặn lệnh thực thi
+        for (String pattern : executionBlockedPatterns) {
+            if (lower.contains(pattern)) {
+                return false;
+            }
+        }
+
         return true;
     }
 
