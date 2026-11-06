@@ -196,18 +196,27 @@ public class ManagerHrController {
             Staff staff = staffRepository.findById(staffId)
                     .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy Nhân viên với ID: " + staffId));
 
-            WorkingStatus newStatus = WorkingStatus.valueOf(payload.get("workingStatus"));
+            String statusStr = payload.get("status");
+            if (statusStr == null) {
+                throw new IllegalArgumentException("Thiếu dữ liệu trạng thái (status).");
+            }
+
+            WorkingStatus newStatus = WorkingStatus.valueOf(statusStr);
             staff.setWorkingStatus(newStatus);
             staffRepository.save(staff);
 
             if (newStatus == WorkingStatus.RESIGNED || newStatus == WorkingStatus.SUSPENDED) {
                 String reason = (newStatus == WorkingStatus.RESIGNED) ? "Nhân viên đã nghỉ việc." : "Nhân viên đang bị đình chỉ/nghỉ tạm thời.";
                 adminAccountService.lockAccount(staff.getUser().getId(), -1, "Hệ thống tự động khóa: " + reason);
+            } else if (newStatus == WorkingStatus.WORKING) {
+                adminAccountService.unlockAccount(staff.getUser().getId(), "Hệ thống tự động mở: Nhân viên đi làm lại.");
             }
 
             return ResponseEntity.ok(Map.of("message", "Cập nhật trạng thái nhân viên thành công!"));
-        } catch (Exception e) {
+        } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi hệ thống khi cập nhật trạng thái."));
         }
     }
 

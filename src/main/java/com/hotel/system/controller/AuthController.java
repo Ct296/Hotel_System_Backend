@@ -39,6 +39,7 @@ public class AuthController {
     private final JwtTokenProvider jwtTokenProvider;
     private final com.hotel.system.repository.ManagerRepository managerRepository;
     private final LoginAttemptService loginAttemptService;
+    private final com.hotel.system.repository.StaffRepository staffRepository;
 
     @Data
     public static class LoginRequest {
@@ -74,6 +75,22 @@ public class AuthController {
         }
         if (!loginRequest.isEmployee() && !isCustomer) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Vui lòng đăng nhập qua cổng dành cho nhân viên!"));
+        }
+
+        if (roleName.equals("STAFF")) {
+            boolean isResigned = staffRepository.findById(user.getId())
+                    .map(staff -> staff.getWorkingStatus() == com.hotel.system.entity.enums.WorkingStatus.RESIGNED)
+                    .orElse(false);
+            if (isResigned) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Tài khoản của bạn đã bị vô hiệu hóa do đã nghỉ việc."));
+            }
+        } else if (roleName.equals("MANAGER")) {
+            boolean isResigned = managerRepository.findById(user.getId())
+                    .map(manager -> manager.getWorkingStatus() == com.hotel.system.entity.enums.WorkingStatus.RESIGNED)
+                    .orElse(false);
+            if (isResigned) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Tài khoản của bạn đã bị vô hiệu hóa do đã nghỉ việc."));
+            }
         }
 
         Optional<Account> accountOpt = accountRepository.findById(user.getId());

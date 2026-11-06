@@ -191,15 +191,34 @@ public class StaffController {
                 .sorted(Comparator.comparing(Rental::getRentDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
 
-        List<Rental> pendingBookings = rentals.stream()
+        // Trả về Map thay vì Entity nguyên bản để có thể nhét thêm trường depositAmount
+        List<Map<String, Object>> pendingBookings = rentals.stream()
                 .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()) && rental.getStatus() == RentalStatus.PENDING)
+                .map(rental -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("id", rental.getId());
+                    map.put("customer", rental.getCustomer());
+                    map.put("rentalDetails", rental.getRentalDetails());
+                    map.put("status", rental.getStatus());
+                    map.put("depositAmount", billingService.calculateDepositAmount(rental));
+                    return map;
+                })
                 .toList();
 
-        List<Rental> todayArrivals = rentals.stream()
+        List<Map<String, Object>> todayArrivals = rentals.stream()
                 .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()) && rental.getStatus() == RentalStatus.CONFIRMED)
                 .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
                 .filter(rental -> !rental.getRentalDetails().isEmpty() && rental.getRentalDetails().get(0).getCheckinDate() != null)
                 .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate().toLocalDate().isEqual(LocalDate.now()))
+                .map(rental -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("id", rental.getId());
+                    map.put("customer", rental.getCustomer());
+                    map.put("rentalDetails", rental.getRentalDetails());
+                    map.put("status", rental.getStatus());
+                    map.put("depositAmount", billingService.calculateDepositAmount(rental));
+                    return map;
+                })
                 .toList();
 
         return ResponseEntity.ok(Map.of(
@@ -242,11 +261,29 @@ public class StaffController {
     public ResponseEntity<?> getCleaningRooms() {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
-        List<Rental> checkedOutRentals = rentalRepository.findAll().stream()
+        List<Rental> completedRentals = rentalRepository.findAll().stream()
                 .filter(rental -> rental.getStatus() == RentalStatus.COMPLETED)
-                .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getRoom() != null && d.getRoom().getStatus() == RoomStatus.CLEANING))
                 .sorted(Comparator.comparing(Rental::getRentDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
+
+        List<Rental> checkedOutRentals = new ArrayList<>();
+        Set<String> processedRoomIds = new HashSet<>();
+
+        for (Rental rental : completedRentals) {
+            for (RentalDetail detail : rental.getRentalDetails()) {
+                Room room = detail.getRoom();
+                if (room != null && room.getStatus() == RoomStatus.CLEANING && !processedRoomIds.contains(room.getId())) {
+                    
+                    Rental clone = new Rental();
+                    clone.setId(rental.getId());
+                    clone.setCustomer(rental.getCustomer());
+                    clone.setRentalDetails(List.of(detail));
+                    
+                    checkedOutRentals.add(clone);
+                    processedRoomIds.add(room.getId());
+                }
+            }
+        }
 
         return ResponseEntity.ok(Map.of("checkedOutRentals", checkedOutRentals));
     }
@@ -284,6 +321,7 @@ public class StaffController {
                     map.put("count", u.getCount());
                     map.put("unitPrice", u.getUnitPrice());
                     map.put("service", u.getService() != null ? Map.of("name", u.getService().getName()) : null);
+                    map.put("rentalDetailId", u.getRentalDetail() != null ? u.getRentalDetail().getId() : null);
                     return map;
                 }).toList();
 

@@ -21,7 +21,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-import java.security.Principal;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/manager/operation")
 @RequiredArgsConstructor
 public class IncidentApiController {
 
@@ -39,17 +38,61 @@ public class IncidentApiController {
     private final UsersRepository usersRepository;
     private final ManagerRepository managerRepository;
 
-    // Giữ nguyên logic API gốc của Staff
+    // 1. API DÀNH CHO LỄ TÂN (STAFF)
     @PostMapping("/api/staff/incidents/create")
-    public ResponseEntity<?> createIncident(@RequestBody IncidentCreateRequest request, Principal principal) {
+    public ResponseEntity<?> createIncident(@RequestBody IncidentCreateRequest request) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
         try {
-            incidentService.createIncident(request, principal.getName());
+            // Lấy email từ token JWT (auth.getName())
+            String email = auth.getName();
+            incidentService.createIncident(request, email);
             return ResponseEntity.ok().body(Map.of("message", "Báo cáo sự cố thành công"));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", "Lỗi: " + e.getMessage()));
         }
     }
 
+@GetMapping("/api/staff/incidents")
+    public ResponseEntity<?> getStaffIncidents() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            List<Incident> incidents = incidentRepository.findAllByOrderByOccurTimeDesc();
+            List<Map<String, Object>>  result = new ArrayList<>();
+            
+            for (Incident i : incidents) {
+                Map<String, Object> map = new HashMap<>();
+                map.put("id", i.getId());
+                map.put("name", i.getName());
+                map.put("occurTime", i.getOccurTime());
+                map.put("description", i.getDescription());
+                map.put("responsible", i.getResponsible());
+                map.put("money", i.getMoney());
+                map.put("handle", i.getHandle());
+                map.put("status", i.getStatus());
+                
+                if (i.getRentalDetail() != null) {
+                    map.put("rentalDetailId", i.getRentalDetail().getId());
+                    if (i.getRentalDetail().getRoom() != null) {
+                        map.put("roomName", i.getRentalDetail().getRoom().getName()); 
+                    }
+                }
+                result.add(map);
+            }
+            return ResponseEntity.ok(Map.of("incidents", result));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi: " + e.getMessage()));
+        }
+    }
+
+    // 2. CÁC API DÀNH CHO QUẢN LÝ (MANAGER)
     private boolean hasOperationAccess() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) return false;
@@ -64,12 +107,12 @@ public class IncidentApiController {
         return false;
     }
 
-    @GetMapping("/incidents")
+    @GetMapping("/api/manager/operation/incidents")
     public ResponseEntity<?> getAllIncidents() {
         if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         
         List<Incident> incidents = incidentRepository.findAllByOrderByOccurTimeDesc();
-        List<Map<String, Object>> result = new ArrayList<>();
+        List<Map<String, Object>>  result = new ArrayList<>();
         
         for (Incident i : incidents) {
             Map<String, Object> map = new HashMap<>();
@@ -106,8 +149,7 @@ public class IncidentApiController {
         
         return ResponseEntity.ok(Map.of("incidents", result, "activeRentals", rentals));
     }
-
-    @PostMapping("/incidents")
+    @PostMapping("/api/manager/operation/incidents")
     @Transactional
     public ResponseEntity<?> saveIncident(@RequestBody Map<String, Object> payload) {
         if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

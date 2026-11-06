@@ -26,13 +26,13 @@ public class Incident {
     @Column(name = "INCIDENT_Description", length = 255)
     private String description;
 
-    @Column(name = "INCIDENT_Responsible", length = 20)
+    @Column(name = "INCIDENT_Responsible", length = 80)
     private String responsible;
 
     @Column(name = "INCIDENT_Money")
     private Double money;
 
-    @Column(name = "INCIDENT_Handle", length = 20)
+    @Column(name = "INCIDENT_Handle", length = 255)
     private String handle;
 
     @Enumerated(EnumType.STRING)

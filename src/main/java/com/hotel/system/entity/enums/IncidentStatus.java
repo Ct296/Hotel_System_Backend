@@ -4,6 +4,7 @@ import lombok.Getter;
 
 @Getter
 public enum IncidentStatus {
+    PENDING("Chờ xử lý"),
     PROCESSING("Đang xử lý"),
     RESOLVED("Đã giải quyết xong"),
     REJECTED("Đã hủy bỏ");

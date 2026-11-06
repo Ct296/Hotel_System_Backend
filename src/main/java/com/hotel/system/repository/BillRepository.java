@@ -49,7 +49,7 @@ public interface BillRepository extends JpaRepository<Bill, String> {
     List<Object[]> getMonthlyRevenueByYear(@Param("year") int year);
 
     // 3. Danh sách phòng Check-in / Check-out hôm nay
-    @Query(value = "SELECT * FROM RENTAL_DETAIL WHERE DATE(RENTAL_DETAIL_CheckinDate) = CURRENT_DATE OR DATE(RENTAL_DETAIL_CheckinDate + RENTAL_DETAIL_LengthOfStay * INTERVAL '1 day') = CURRENT_DATE", nativeQuery = true)
+    @Query(value = "SELECT * FROM RENTAL_DETAIL WHERE DATE(RENTAL_DETAIL_CheckinDate) = CURRENT_DATE OR DATE(RENTAL_DETAIL_CheckinDate + RENTAL_DETAIL_LengthOfStay * INTERVAL '1 hour') = CURRENT_DATE", nativeQuery = true)
     List<RentalDetail> findTodayTasks();
     
     @Query("""
