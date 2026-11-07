@@ -232,11 +232,11 @@ public class ManagerCustomerController {
             boolean isCurrentlyLocked = effectiveStatus != null && effectiveStatus.getName() == AccountState.LOCKED;
 
             if (isCurrentlyLocked) {
-                adminAccountService.unlockAccount(userId, "Manager Customer mở khoá");
-                return ResponseEntity.ok(Map.of("message", "Đã mở khoá tài khoản khách hàng."));
+                adminAccountService.updateAccountStatus(userId, AccountState.ACTIVE, -1, "Manager Customer mở khóa");
+                return ResponseEntity.ok(Map.of("message", "Đã mở khóa tài khoản khách hàng."));
             } else {
-                adminAccountService.lockAccount(userId, -1, "Manager Customer khoá");
-                return ResponseEntity.ok(Map.of("message", "Đã khoá tài khoản khách hàng."));
+                adminAccountService.updateAccountStatus(userId, AccountState.LOCKED, -1, "Manager Customer khóa");
+                return ResponseEntity.ok(Map.of("message", "Đã khóa tài khoản khách hàng."));
             }
             
         } catch (Exception e) {

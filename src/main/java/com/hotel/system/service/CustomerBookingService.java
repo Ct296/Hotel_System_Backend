@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -23,11 +24,34 @@ public class CustomerBookingService {
     private final RentalOperationService rentalOperationService;
     private final BillingService billingService;
     private final AppliedPeriodRepository appliedPeriodRepository;
+    
+    private final AccountStatusRepository accountStatusRepository;
+    private final AccountRepository accountRepository;
 
     private static final int MINIMUM_STAY_HOURS = 1;
 
     @Transactional
     public Rental processBooking(BookingConfirmRequest request, Customer customer) {
+        // KIỂM TRA PHẠT 1: Tài khoản có đang bị cấm đặt phòng không?
+        AccountStatus latestStatus = accountStatusRepository.findTopByAccountIdOrderByStartTimeDesc(customer.getId()).orElse(null);
+        if (latestStatus != null && (latestStatus.getName() == AccountState.LOCKED || latestStatus.getName() == AccountState.BOOKING_BLOCKED)) {
+            if (latestStatus.getEndTime() == null || latestStatus.getEndTime().isAfter(LocalDateTime.now())) {
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm - dd/MM/yyyy");
+                String timeStr = latestStatus.getEndTime() == null ? "Vĩnh viễn" : latestStatus.getEndTime().format(formatter);
+                String reason = latestStatus.getReason() != null ? latestStatus.getReason() : "Vi phạm chính sách hệ thống.";
+                
+                throw new IllegalStateException("Tính năng đặt phòng đang bị khóa!|Lý do: " + reason + "|Hết hạn vào: " + timeStr + "|Vui lòng liên hệ Hotline 0901 000 001 để được hỗ trợ.");
+            }
+        }
+
+        // KIỂM TRA PHẠT 2: Tối đa 3 đơn đang chờ thanh toán
+        long pendingCount = rentalRepository.findByCustomerId(customer.getId()).stream()
+                .filter(r -> r.getStatus() == RentalStatus.PENDING)
+                .count();
+        if (pendingCount >= 3) {
+            throw new IllegalStateException("Giới hạn chống đầu cơ phòng!|Bạn đang có " + pendingCount + " đơn chờ thanh toán.|Vui lòng thanh toán hoặc hủy các đơn cũ trước khi tạo mới.|Cần hỗ trợ? Gọi Hotline 0901 000 001.");
+        }
+
         List<Room> selectedRooms = roomRepository.findAllById(request.getRoomId());
         if (selectedRooms.isEmpty() || selectedRooms.size() != request.getRoomId().size()) {
             throw new IllegalArgumentException("Danh sách phòng không hợp lệ.");
@@ -36,7 +60,6 @@ public class CustomerBookingService {
         LocalDateTime checkIn = request.getCheckIn();
         LocalDateTime checkOut = request.getCheckOut();
 
-        // 1. Kiểm tra trùng lịch và sức chứa cho từng phòng
         for (int i = 0; i < selectedRooms.size(); i++) {
             Room room = selectedRooms.get(i);
             if (rentalOperationService.hasBlockingConflict(room.getId(), checkIn, checkOut.plusMinutes(30), null)) {
@@ -55,7 +78,6 @@ public class CustomerBookingService {
         int stayHours = (int) Math.max(ChronoUnit.HOURS.between(checkIn, checkOut), MINIMUM_STAY_HOURS);
         RentalType type = request.getRentalType() != null ? request.getRentalType() : RentalType.HOURLY;
 
-        // 2. Tạo Booking chính (Rental)
         Rental rental = new Rental();
         rental.setId(AppUtils.generateId("REN", 10));
         rental.setRentDate(LocalDateTime.now());
@@ -67,14 +89,13 @@ public class CustomerBookingService {
         rental.setCustomer(customer);
         rentalRepository.save(rental);
 
-        // 3. Tạo chi tiết cho từng phòng (cùng thời gian thuê)
         for (int i = 0; i < selectedRooms.size(); i++) {
             Room room = selectedRooms.get(i);
             RentalDetail detail = new RentalDetail();
             detail.setId(AppUtils.generateId("RDT", 10));
             detail.setCheckinDate(checkIn);
             detail.setLengthOfStay(stayHours);
-            detail.setRentalType(type); // Gán hình thức thuê (Hourly/Daily)
+            detail.setRentalType(type); 
             
             detail.setAdultCount(request.getAdultCounts().get(i));
             detail.setChildrenCount(request.getChildrenCounts().get(i));
@@ -116,10 +137,37 @@ public class CustomerBookingService {
         }
         rentalRepository.save(rental);
         
+        checkAndPenalizeSpamCancel(customerId);
+        
         return wasConfirmed ? depositPaid : 0.0;
     }
 
-    // Áp giá Daily hay Hourly dựa vào RentalType
+    public void checkAndPenalizeSpamCancel(String customerId) {
+        LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusDays(1);
+        
+        long cancelCount = rentalRepository.findByCustomerId(customerId).stream()
+                .filter(r -> r.getStatus() == RentalStatus.CANCELLED && r.getRentDate().isAfter(twentyFourHoursAgo))
+                .count();
+                
+        if (cancelCount >= 3) {
+            AccountStatus currentStatus = accountStatusRepository.findTopByAccountIdOrderByStartTimeDesc(customerId).orElse(null);
+            if (currentStatus != null && currentStatus.getName() == AccountState.BOOKING_BLOCKED && currentStatus.getEndTime() != null && currentStatus.getEndTime().isAfter(LocalDateTime.now())) {
+                return;
+            }
+
+            AccountStatus status = new AccountStatus();
+            status.setId(AppUtils.generateId("AST", 10));
+            status.setName(AccountState.BOOKING_BLOCKED);
+            status.setStartTime(LocalDateTime.now());
+            status.setEndTime(LocalDateTime.now().plusDays(1)); // Khóa 1 ngày
+            status.setReason("Hủy đơn hoặc để quá hạn cọc từ 3 lần trở lên trong vòng 24 giờ.");
+            
+            Account account = accountRepository.findById(customerId).orElseThrow();
+            status.setAccount(account);
+            accountStatusRepository.save(status);
+        }
+    }
+
     private double resolveRoomUnitPrice(Room room, LocalDateTime checkInDate, RentalType rentalType) {
         if (room == null || room.getRoomType() == null) return 0.0;
         

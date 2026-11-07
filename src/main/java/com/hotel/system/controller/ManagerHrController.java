@@ -1,6 +1,7 @@
 package com.hotel.system.controller;
 
 import com.hotel.system.entity.*;
+import com.hotel.system.entity.enums.AccountState;
 import com.hotel.system.entity.enums.AttendanceStatus;
 import com.hotel.system.entity.enums.Role;
 import com.hotel.system.entity.enums.Shift;
@@ -207,9 +208,9 @@ public class ManagerHrController {
 
             if (newStatus == WorkingStatus.RESIGNED || newStatus == WorkingStatus.SUSPENDED) {
                 String reason = (newStatus == WorkingStatus.RESIGNED) ? "Nhân viên đã nghỉ việc." : "Nhân viên đang bị đình chỉ/nghỉ tạm thời.";
-                adminAccountService.lockAccount(staff.getUser().getId(), -1, "Hệ thống tự động khóa: " + reason);
+                adminAccountService.updateAccountStatus(staff.getUser().getId(), AccountState.LOCKED, -1, "Hệ thống tự động khóa: " + reason);
             } else if (newStatus == WorkingStatus.WORKING) {
-                adminAccountService.unlockAccount(staff.getUser().getId(), "Hệ thống tự động mở: Nhân viên đi làm lại.");
+                adminAccountService.updateAccountStatus(staff.getUser().getId(), AccountState.ACTIVE, -1, "Hệ thống tự động mở: Nhân viên đi làm lại.");
             }
 
             return ResponseEntity.ok(Map.of("message", "Cập nhật trạng thái nhân viên thành công!"));

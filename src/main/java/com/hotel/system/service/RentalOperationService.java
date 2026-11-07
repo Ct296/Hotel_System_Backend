@@ -12,6 +12,7 @@ import com.hotel.system.repository.BillRepository;
 import com.hotel.system.repository.RentalDetailRepository;
 import com.hotel.system.repository.RentalRepository;
 import com.hotel.system.repository.RoomRepository;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -21,10 +22,9 @@ import java.util.Set;
 
 @Service
 public class RentalOperationService {
-    private static final long CLEANING_BUFFER_MINUTES = 30;
+    private static final long CLEANING_BUFFER_MINUTES = 15;
     private static final long BOOKING_HOLD_MINUTES = 30;
 
-    // Đã sửa thành RentalDetailStatus để theo dõi chi tiết phòng
     private static final Set<RentalDetailStatus> BLOCKING_BOOKING_STATUSES = Set.of(
             RentalDetailStatus.PENDING,
             RentalDetailStatus.CHECKED_IN,
@@ -36,17 +36,20 @@ public class RentalOperationService {
     private final RoomRepository roomRepository;
     private final BillRepository billRepository;
     private final BillingService billingService;
+    private final CustomerBookingService customerBookingService; 
 
     public RentalOperationService(RentalRepository rentalRepository,
                                   RentalDetailRepository rentalDetailRepository,
                                   RoomRepository roomRepository,
                                   BillRepository billRepository,
-                                  BillingService billingService) {
+                                  BillingService billingService,
+                                  @Lazy CustomerBookingService customerBookingService) {
         this.rentalRepository = rentalRepository;
         this.rentalDetailRepository = rentalDetailRepository;
         this.roomRepository = roomRepository;
         this.billRepository = billRepository;
         this.billingService = billingService;
+        this.customerBookingService = customerBookingService;
     }
 
     public LocalDateTime calculateExpectedCheckout(Rental rental) {
@@ -59,7 +62,6 @@ public class RentalOperationService {
 
     public boolean isNearCheckout(Rental rental, long thresholdMinutes) {
         if (rental == null) return false;
-        // Kiểm tra xem có chi tiết phòng nào đang ở không
         boolean hasCheckedInRoom = rental.getRentalDetails().stream()
                 .anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN);
         if (!hasCheckedInRoom) return false;
@@ -79,7 +81,6 @@ public class RentalOperationService {
 
     public void markCheckedInRentalsAsOverdue() {
         LocalDateTime now = LocalDateTime.now();
-        // Cập nhật trạng thái OVERDUE cho từng RentalDetail (từng phòng)
         List<RentalDetail> overdueDetails = rentalDetailRepository.findAll().stream()
                 .filter(detail -> detail.getStatus() == RentalDetailStatus.CHECKED_IN)
                 .filter(detail -> detail.getCheckinDate() != null && detail.getLengthOfStay() != null)
@@ -111,14 +112,19 @@ public class RentalOperationService {
                     detail.setStatus(RentalDetailStatus.CANCELLED);
                 }
             }
+            
+            // Nếu có khách hàng, gọi hàm kiểm tra và phạt (Tương đương việc khách tự tay hủy)
+            if (rental.getCustomer() != null && rental.getCustomer().getId() != null) {
+                customerBookingService.checkAndPenalizeSpamCancel(rental.getCustomer().getId());
+            }
         }
+        
         if (!expiredBookings.isEmpty()) {
             rentalRepository.saveAll(expiredBookings);
         }
     }
 
     public boolean hasBlockingConflict(String roomId, LocalDateTime requestedStart, LocalDateTime requestedEndWithBuffer, String ignoreRentalId) {
-        // Dùng hàm repository mới gọi theo RentalDetailStatus
         return rentalRepository.findByRentalDetails_RoomIdAndRentalDetails_StatusIn(roomId, BLOCKING_BOOKING_STATUSES).stream()
                 .filter(existing -> ignoreRentalId == null || !existing.getId().equals(ignoreRentalId))
                 .filter(existing -> existing.getRentalDetails() != null && !existing.getRentalDetails().isEmpty()

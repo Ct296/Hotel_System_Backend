@@ -188,36 +188,27 @@ public class AdminController {
         }
     }
 
-    // 4. KHÓA TÀI KHOẢN
-    @PostMapping("/accounts/{userId}/lock")
-    public ResponseEntity<?> lockAccount(@PathVariable String userId, @RequestBody Map<String, Object> payload) {
+    @PutMapping("/accounts/{userId}/status")
+    public ResponseEntity<?> updateAccountStatus(@PathVariable String userId, @RequestBody Map<String, Object> payload) {
         Users currentUser = getCurrentAdmin();
         if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
+        
         if (currentUser.getId().equals(userId)) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Admin không thể tự khóa chính mình."));
+            return ResponseEntity.badRequest().body(Map.of("error", "Admin không thể tự đổi trạng thái của chính mình."));
         }
-
+        
         try {
+            String statusStr = (String) payload.get("status");
+            if (statusStr == null || statusStr.isBlank()) {
+                throw new IllegalArgumentException("Thiếu trạng thái (status).");
+            }
+            
+            AccountState newState = AccountState.valueOf(statusStr);
             Integer durationDays = payload.containsKey("durationDays") ? Integer.parseInt(payload.get("durationDays").toString()) : -1;
             String reason = (String) payload.getOrDefault("reason", "");
             
-            adminAccountService.lockAccount(userId, durationDays, reason);
-            return ResponseEntity.ok(Map.of("message", "Đã khóa tài khoản thành công."));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    // 5. MỞ KHÓA TÀI KHOẢN
-    @PostMapping("/accounts/{userId}/unlock")
-    public ResponseEntity<?> unlockAccount(@PathVariable String userId, @RequestBody Map<String, String> payload) {
-        if (getCurrentAdmin() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        try {
-            String reason = payload.getOrDefault("reason", "");
-            adminAccountService.unlockAccount(userId, reason);
-            return ResponseEntity.ok(Map.of("message", "Mở khóa tài khoản thành công."));
+            adminAccountService.updateAccountStatus(userId, newState, durationDays, reason);
+            return ResponseEntity.ok(Map.of("message", "Cập nhật trạng thái tài khoản thành công."));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -241,7 +232,7 @@ public class AdminController {
 
             if (newStatus == WorkingStatus.RESIGNED || newStatus == WorkingStatus.SUSPENDED) {
                 String reason = (newStatus == WorkingStatus.RESIGNED) ? "Quản lý đã nghỉ việc." : "Quản lý đang bị đình chỉ/nghỉ tạm thời.";
-                adminAccountService.lockAccount(manager.getUser().getId(), -1, "Hệ thống tự động khóa: " + reason);
+                adminAccountService.updateAccountStatus(manager.getUser().getId(), AccountState.LOCKED, -1, "Hệ thống tự động khóa: " + reason);
             }
 
             return ResponseEntity.ok(Map.of("message", "Đã cập nhật trạng thái làm việc của Manager thành công!"));

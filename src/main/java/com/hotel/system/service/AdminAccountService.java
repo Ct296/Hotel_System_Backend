@@ -110,38 +110,26 @@ public class AdminAccountService {
     }
 
     @Transactional
-    public void lockAccount(String userId, Integer durationDays, String reason) {
+    public void updateAccountStatus(String userId, AccountState newState, Integer durationDays, String reason) {
         Account targetAccount = accountRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài khoản."));
-
         closeCurrentOpenStatus(targetAccount);
+        
         LocalDateTime now = LocalDateTime.now();
-        boolean indefinite = durationDays == -1 || durationDays == 0;
+        AccountStatus newStatus = new AccountStatus();
+        newStatus.setId(AppUtils.generateId("AST", 10));
+        newStatus.setName(newState);
+        newStatus.setStartTime(now);
         
-        AccountStatus lockedStatus = new AccountStatus();
-        lockedStatus.setId(AppUtils.generateId("AST", 10));
-        lockedStatus.setName(AccountState.LOCKED);
-        lockedStatus.setStartTime(now);
-        lockedStatus.setEndTime(indefinite ? null : now.plusDays(durationDays));
-        lockedStatus.setReason(reason == null || reason.isBlank() ? "Khóa tài khoản" : reason);
-        lockedStatus.setAccount(targetAccount);
-        accountStatusRepository.saveAndFlush(lockedStatus);
-    }
-
-    @Transactional
-    public void unlockAccount(String userId, String reason) {
-        Account targetAccount = accountRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài khoản."));
-
-        closeCurrentOpenStatus(targetAccount);
+        // Nếu không phải là trạng thái Đang hoạt động, thì xét thêm thời hạn phạt (nếu có)
+        if (newState != AccountState.ACTIVE) {
+            boolean indefinite = durationDays == null || durationDays == -1 || durationDays == 0;
+            newStatus.setEndTime(indefinite ? null : now.plusDays(durationDays));
+        }
         
-        AccountStatus activeStatus = new AccountStatus();
-        activeStatus.setId(AppUtils.generateId("AST", 10));
-        activeStatus.setName(AccountState.ACTIVE);
-        activeStatus.setStartTime(LocalDateTime.now());
-        activeStatus.setReason(reason == null || reason.isBlank() ? "Admin mở khóa" : reason);
-        activeStatus.setAccount(targetAccount);
-        accountStatusRepository.saveAndFlush(activeStatus);
+        newStatus.setReason(reason == null || reason.isBlank() ? "Admin cập nhật trạng thái" : reason);
+        newStatus.setAccount(targetAccount);
+        accountStatusRepository.saveAndFlush(newStatus);
     }
 
     private void closeCurrentOpenStatus(Account account) {
