@@ -379,53 +379,75 @@ public class StaffController {
             
             String existingCustomerPid = request.getExistingCustomerPid();
             Customer customer = null;
+
             if (existingCustomerPid != null && !existingCustomerPid.trim().isEmpty()) {
-                Users user = usersRepository.findByPid(existingCustomerPid.trim()).orElseThrow(() -> new RuntimeException("Không tìm thấy khách hàng."));
-                customer = customerRepository.findByUser(user).orElseThrow();
+                Users user = usersRepository.findByPid(existingCustomerPid.trim())
+                        .orElseThrow(() -> new RuntimeException("Không tìm thấy khách hàng với CCCD này."));
+                customer = customerRepository.findByUser(user)
+                        .orElseThrow(() -> new RuntimeException("Hồ sơ này không phải là khách hàng."));
             } else {
-                String pid = request.getPid();
-                if (pid == null || pid.trim().isEmpty()) throw new RuntimeException("Vui lòng nhập CCCD.");
-                if (usersRepository.findByPid(pid.trim()).isPresent()) throw new RuntimeException("CCCD/Hộ chiếu đã có trên hệ thống!");
+                String pid = request.getPid() != null ? request.getPid().trim() : "";
+                if (pid.isEmpty()) throw new RuntimeException("Vui lòng nhập CCCD/Hộ chiếu.");
 
-                String email = request.getEmail();
-                if (email == null || email.trim().isEmpty()) {
-                    throw new RuntimeException("Vui lòng nhập Email của khách hàng.");
+                String rawEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : "";
+                String emailToSave = rawEmail.isEmpty() ? null : rawEmail;
+
+                Optional<Users> existingUserByPid = usersRepository.findByPid(pid);
+
+                if (existingUserByPid.isPresent()) {
+                    // Trường hợp khách đã từng lưu trú nhưng lễ tân nhập thẳng vào ô Khách mới thay vì bấm Tìm kiếm
+                    Users existingUser = existingUserByPid.get();
+                    if (existingUser.getRole() != Role.CUSTOMER) {
+                        throw new RuntimeException("Số CCCD này thuộc về nhân sự nội bộ, không thể tạo đơn khách hàng!");
+                    }
+                    // Cập nhật bổ sung SĐT hoặc Email nếu trước đó khách chưa có
+                    if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
+                        existingUser.setPhoneNumber(request.getPhoneNumber().trim());
+                    }
+                    if (emailToSave != null && existingUser.getEmail() == null) {
+                        if (usersRepository.findByEmail(emailToSave).isPresent()) {
+                            throw new RuntimeException("Email này đã được sử dụng bởi một người khác!");
+                        }
+                        existingUser.setEmail(emailToSave);
+                    }
+                    existingUser.setUpdateDate(LocalDateTime.now());
+                    existingUser = usersRepository.save(existingUser);
+
+                    final Users finalExistingUser = existingUser;
+                    customer = customerRepository.findByUser(existingUser).orElseGet(() -> {
+                        Customer newCus = new Customer();
+                        newCus.setUser(finalExistingUser);
+                        return customerRepository.save(newCus);
+                    });
+                } else {
+                    // Trường hợp khách mới hoàn toàn -> Chỉ tạo Users và Customer (KHÔNG tạo Account)
+                    if (emailToSave != null && usersRepository.findByEmail(emailToSave).isPresent()) {
+                        throw new RuntimeException("Email này đã được sử dụng bởi một tài khoản khác!");
+                    }
+
+                    Users newUser = new Users();
+                    newUser.setId(AppUtils.generateId("USR", 10));
+                    newUser.setLastName(request.getLastName() != null ? request.getLastName().trim() : "");
+                    newUser.setFirstName(request.getFirstName() != null ? request.getFirstName().trim() : "Khách");
+                    newUser.setEmail(emailToSave); // Có thể là null nếu khách không cung cấp
+                    newUser.setPid(pid);
+                    newUser.setPhoneNumber(request.getPhoneNumber() != null ? request.getPhoneNumber().trim() : "");
+                    newUser.setNationality(request.getNationality() != null && !request.getNationality().isBlank() ? request.getNationality().trim() : "Việt Nam");
+                    newUser.setSex(request.getSex() != null && !request.getSex().isBlank() ? Gender.valueOf(request.getSex().trim().toUpperCase()) : Gender.MALE);
+                    newUser.setDateOfBirth(request.getDateOfBirth() != null && !request.getDateOfBirth().isBlank() ? LocalDate.parse(request.getDateOfBirth()) : LocalDate.of(2000, 1, 1));
+                    newUser.setRole(Role.CUSTOMER);
+                    newUser.setAvatar("default_avatar_customer.jpg");
+                    newUser.setCreateDate(LocalDateTime.now());
+                    newUser.setUpdateDate(LocalDateTime.now());
+                    newUser = usersRepository.save(newUser);
+
+                    customer = new Customer();
+                    customer.setUser(newUser);
+                    customer = customerRepository.save(customer);
+
+                    // Đồng bộ khởi tạo hạng thẻ mặc định để khách tích lũy chi tiêu ngay từ lần đầu
+                    customerTierService.syncCustomerTierByBills(customer);
                 }
-                if (usersRepository.findByEmail(email.trim()).isPresent()) {
-                    throw new RuntimeException("Email này đã được sử dụng bởi một tài khoản khác!");
-                }
-
-                Users newUser = new Users();
-                newUser.setId(AppUtils.generateId("USR", 10));
-                newUser.setLastName(request.getLastName());
-                newUser.setFirstName(request.getFirstName());
-                newUser.setEmail(email.trim());
-                newUser.setPid(pid);
-                newUser.setPhoneNumber(request.getPhoneNumber());
-                newUser.setNationality(request.getNationality());
-                if (request.getSex() != null) newUser.setSex(Gender.valueOf(request.getSex().toUpperCase()));
-                if (request.getDateOfBirth() != null && !request.getDateOfBirth().isBlank()) newUser.setDateOfBirth(LocalDate.parse(request.getDateOfBirth()));
-                newUser.setRole(Role.CUSTOMER);
-                newUser.setCreateDate(LocalDateTime.now());
-                newUser.setUpdateDate(LocalDateTime.now());
-                newUser = usersRepository.save(newUser);
-
-                customer = new Customer();
-                customer.setUser(newUser);
-                customer = customerRepository.save(customer);
-
-                Account acc = new Account();
-                acc.setUser(newUser);
-                acc.setPassword(PasswordUtils.hashPassword("123456"));
-                accountRepository.save(acc);
-
-                AccountStatus accStatus = new AccountStatus();
-                accStatus.setId(AppUtils.generateId("AST", 10));
-                accStatus.setAccount(acc);
-                accStatus.setName(AccountState.ACTIVE);
-                accStatus.setStartTime(LocalDateTime.now());
-                accStatus.setReason("Tạo tài khoản tự động");
-                accountStatusRepository.save(accStatus);
             }
 
             Rental rental = new Rental();

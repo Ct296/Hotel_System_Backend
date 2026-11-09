@@ -57,7 +57,7 @@ public class AdminController {
         return null;
     }
 
-    // Lấy trạng thái khóa mới nhất
+    // Helper: Lấy trạng thái hiệu lực mới nhất của tài khoản dựa trên danh sách trạng thái
     private AccountStatus getEffectiveLatestStatus(String userId) {
         List<AccountStatus> statuses = accountStatusRepository.findAll()
                 .stream()
@@ -66,17 +66,24 @@ public class AdminController {
                         && status.getAccount().getId().equals(userId))
                 .sorted(Comparator.comparing(AccountStatus::getStartTime))
                 .toList();
-
+                
         if (statuses.isEmpty()) return null;
-
-        AccountStatus latestStatus = statuses.get(statuses.size() - 1);
-        if (latestStatus.getName() == AccountState.LOCKED
-                && latestStatus.getEndTime() != null
-                && latestStatus.getEndTime().isBefore(LocalDateTime.now())) {
-            return null;
+        // Duyệt ngược từ trạng thái mới nhất đến cũ nhất
+        for (int i = statuses.size() - 1; i >= 0; i--) {
+            AccountStatus status = statuses.get(i);
+            // Nếu trạng thái là ACTIVE, nó luôn có hiệu lực (cho đến khi có trạng thái khác đè lên)
+            if (status.getName() == AccountState.ACTIVE) {
+                return status;
+            }
+            // Nếu là LOCKED hoặc BOOKING_BLOCKED, kiểm tra xem đã hết hạn chưa
+            if (status.getEndTime() == null || !status.getEndTime().isBefore(LocalDateTime.now())) {
+                // Chưa hết hạn (vô thời hạn hoặc thời hạn ở tương lai)
+                return status;
+            }
+            // Nếu đã hết hạn, bỏ qua và kiểm tra trạng thái trước đó trong vòng lặp
         }
-
-        return latestStatus;
+        // Nếu tất cả các trạng thái đều đã hết hạn, mặc định là không có trạng thái phạt nào có hiệu lực
+        return null;
     }
 
     // 1. LẤY DỮ LIỆU DASHBOARD (Danh sách tài khoản)
@@ -188,6 +195,7 @@ public class AdminController {
         }
     }
 
+    // 4. CẬP NHẬT TRẠNG THÁI TÀI KHOẢN (LOCKED, ACTIVE, BOOKING_BLOCKED)
     @PutMapping("/accounts/{userId}/status")
     public ResponseEntity<?> updateAccountStatus(@PathVariable String userId, @RequestBody Map<String, Object> payload) {
         Users currentUser = getCurrentAdmin();

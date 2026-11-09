@@ -126,6 +126,15 @@ public class CustomerBookingService {
             throw new IllegalArgumentException("Booking này không thể hủy do đang ở trạng thái không cho phép.");
         }
 
+        // CHẶN HỦY NẾU KHÁCH ĐÃ CHECK-IN (ĐANG Ở) HOẶC ĐÃ TRẢ PHÒNG
+        if (rental.getRentalDetails() != null) {
+            boolean hasCheckedInOrProcessed = rental.getRentalDetails().stream()
+                    .anyMatch(d -> d.getStatus() != null && d.getStatus() != RentalDetailStatus.PENDING);
+            if (hasCheckedInOrProcessed) {
+                throw new IllegalArgumentException("Bạn đã nhận phòng, không thể hủy booking. Vui lòng liên hệ quầy lễ tân nếu muốn trả phòng sớm!");
+            }
+        }
+
         double depositPaid = billingService.calculateDepositPaid(rental.getId());
         boolean wasConfirmed = rental.getStatus() == RentalStatus.CONFIRMED;
 

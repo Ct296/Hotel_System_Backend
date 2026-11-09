@@ -38,7 +38,7 @@ public class Users {
     @Column(name = "USER_Nationality", nullable = false, length = 100)
     private String nationality;
 
-    @Column(name = "USER_Email", unique = true, nullable = false, length = 50)
+    @Column(name = "USER_Email", unique = true, nullable = true, length = 50)
     private String email;
 
     @Column(name = "USER_PhoneNumber", nullable = false, length = 15)

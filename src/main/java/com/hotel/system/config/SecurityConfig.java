@@ -25,6 +25,7 @@ public class SecurityConfig {
         this.jwtAuthFilter = jwtAuthFilter;
     }
 
+    // Cấu hình bảo mật cho ứng dụng
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -32,6 +33,7 @@ public class SecurityConfig {
             .cors(cors -> cors.configure(http)) 
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // Cho phép tất cả các request OPTIONS (CORS preflight requests)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 
@@ -45,7 +47,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/staff/**").hasAnyAuthority("STAFF", "MANAGER", "ADMIN")
                 .requestMatchers("/api/customer/**").hasAuthority("CUSTOMER")
                 
-                // 5. Tất cả các request khác phải có Token hợp lệ
+                //Tất cả các request khác phải có Token hợp lệ
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

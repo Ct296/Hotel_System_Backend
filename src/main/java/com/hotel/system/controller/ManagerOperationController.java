@@ -560,7 +560,6 @@ public class ManagerOperationController {
         }
         stats.put("weeklyBookings", weeklyCounts);
 
-        // --- CÁC DỮ LIỆU CŨ ĐÃ CÓ SẴN ---
         List<RentalDetail> tasks = rentalDetailRepository.findTodayTasks();
         List<Map<String, Object>> todayTasks = new ArrayList<>();
         java.time.LocalDate today = java.time.LocalDate.now();

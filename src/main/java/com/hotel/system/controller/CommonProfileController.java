@@ -34,6 +34,7 @@ public class CommonProfileController {
     private final UsersRepository usersRepository;
     private final AccountStatusRepository accountStatusRepository;
 
+    // Helper: Lấy User hiện tại từ JWT Security Context, chỉ trả về User có Role khác CUSTOMER
     private Users getLoggedInInternalUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof UserDetails userDetails) {
@@ -48,15 +49,15 @@ public class CommonProfileController {
         return null;
     }
 
+    // API: Lấy thông tin hồ sơ của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @GetMapping("")
     public ResponseEntity<?> getMyProfile() {
         Users currentUser = getLoggedInInternalUser();
         if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        
-        // Trả về full object User (hoặc map ra DTO nếu muốn giấu password)
         return ResponseEntity.ok(currentUser);
     }
 
+    // API: Cập nhật hồ sơ của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @PutMapping("/update")
     public ResponseEntity<?> updateProfile(@Valid @ModelAttribute ProfileUpdateRequest request, BindingResult bindingResult) {
         Users currentUser = getLoggedInInternalUser();
@@ -80,6 +81,7 @@ public class CommonProfileController {
         }
     }
 
+    // API: Đổi mật khẩu của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @PutMapping("/change-password")
     public ResponseEntity<?> changePassword(@Valid @RequestBody ChangePasswordRequest request, BindingResult bindingResult) {
         Users currentUser = getLoggedInInternalUser();
@@ -97,6 +99,7 @@ public class CommonProfileController {
         }
     }
 
+    // API: Lấy danh sách trạng thái tài khoản của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @GetMapping("/account-statuses")
     public ResponseEntity<?> getAccountStatuses() {
         Users currentUser = getLoggedInInternalUser();
@@ -108,9 +111,9 @@ public class CommonProfileController {
     }
 }
 
-// Chặn lỗi upload file quá dung lượng (Trả về JSON)
-@RestControllerAdvice
-class CommonProfileExceptionAdvice {
+    // Chặn lỗi upload file quá dung lượng (Trả về JSON)
+    @RestControllerAdvice
+    class CommonProfileExceptionAdvice {
     @ExceptionHandler({MaxUploadSizeExceededException.class, MultipartException.class})
     public ResponseEntity<?> handleUploadSizeException() {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)

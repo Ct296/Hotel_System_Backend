@@ -36,10 +36,10 @@ public class ChatController {
         return null;
     }
 
+    // API Chatbot: Nhận tin nhắn từ khách hàng và trả lời từ Gemini AI
     @PostMapping
     public ResponseEntity<Map<String, Object>> chat(@RequestBody Map<String, String> body,
                                                     HttpSession session) {
-
         String message = body.getOrDefault("message", "");
         // Lấy User từ JWT thay vì Session cũ
         Users currentUser = getCurrentUser();

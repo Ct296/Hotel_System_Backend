@@ -71,13 +71,19 @@ public class LocalMediaStorageService implements MediaStorageService {
             Path targetPath = targetDirectory.resolve(fileName).normalize();
 
             // SANITIZE ẢNH BẰNG CÁCH RE-ENCODE
-            try (InputStream inputStream = file.getInputStream()) {
-                BufferedImage originalImage = ImageIO.read(inputStream);
-                if (originalImage == null) {
-                    throw new IllegalArgumentException("File ảnh bị lỗi hoặc chứa dữ liệu không xác định.");
+            if ("webp".equalsIgnoreCase(extension)) {
+                // Với file webp, bỏ qua ImageIO re-encode, chuyển file thẳng vào thư mục đích
+                file.transferTo(targetPath.toFile());
+            } else {
+                // Với jpg, png, giữ nguyên logic sanitize bằng ImageIO
+                try (InputStream inputStream = file.getInputStream()) {
+                    BufferedImage originalImage = ImageIO.read(inputStream);
+                    if (originalImage == null) {
+                        throw new IllegalArgumentException("File ảnh bị lỗi hoặc chuẩn không xác định.");
+                    }
+                    File outputFile = targetPath.toFile();
+                    ImageIO.write(originalImage, extension, outputFile);
                 }
-                File outputFile = targetPath.toFile();
-                ImageIO.write(originalImage, extension, outputFile);
             }
 
             String publicPath = "/uploads/" + directory.getFolderName() + "/" + fileName;
