@@ -1,10 +1,8 @@
 package com.hotel.system.service;
 
-import com.hotel.system.entity.Bill;
 import com.hotel.system.entity.Rental;
 import com.hotel.system.entity.RentalDetail;
 import com.hotel.system.entity.Room;
-import com.hotel.system.entity.enums.BillType;
 import com.hotel.system.entity.enums.RentalDetailStatus;
 import com.hotel.system.entity.enums.RentalStatus;
 import com.hotel.system.entity.enums.RoomStatus;
@@ -22,8 +20,8 @@ import java.util.Set;
 
 @Service
 public class RentalOperationService {
-    private static final long CLEANING_BUFFER_MINUTES = 15;
-    private static final long BOOKING_HOLD_MINUTES = 30;
+    private static final long CLEANING_BUFFER_MINUTES = 30;
+    private static final long BOOKING_HOLD_MINUTES = 15;
 
     private static final Set<RentalDetailStatus> BLOCKING_BOOKING_STATUSES = Set.of(
             RentalDetailStatus.PENDING,
@@ -171,16 +169,8 @@ public class RentalOperationService {
         roomRepository.saveAll(roomsToRelease);
     }
 
-    private LocalDateTime findLatestCheckoutTime(String roomId) {
-        return billRepository.findAllByOrderByCreateDateDesc().stream()
-                .filter(bill -> bill.getType() == BillType.FINAL || bill.getType() == BillType.EARLY_CHECKOUT)
-                .filter(bill -> bill.getRental() != null)
-                .filter(bill -> bill.getRental().getRentalDetails() != null && !bill.getRental().getRentalDetails().isEmpty()
-                                 && bill.getRental().getRentalDetails().get(0).getRoom() != null)
-                .filter(bill -> roomId.equals(bill.getRental().getRentalDetails().get(0).getRoom().getId()))
-                .map(Bill::getCreateDate)
-                .filter(time -> time != null)
-                .max(LocalDateTime::compareTo)
-                .orElse(null);
+    public LocalDateTime findLatestCheckoutTime(String roomId) {
+        if (roomId == null || roomId.isBlank()) return null;
+        return billRepository.findLatestCheckoutTimeByRoomId(roomId);
     }
 }

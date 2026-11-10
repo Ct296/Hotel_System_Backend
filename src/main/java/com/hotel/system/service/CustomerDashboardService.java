@@ -19,6 +19,7 @@ public class CustomerDashboardService {
     
     private final BillRepository billRepository;
     private final TierHistoryRepository tierHistoryRepository;
+    private final CustomerTierService customerTierService;
 
     public BigDecimal calculateAverageReviewRate(List<Review> reviews) {
         if (reviews == null || reviews.isEmpty()) {
@@ -58,8 +59,9 @@ public class CustomerDashboardService {
 
     public Map<String, TierCustomer> buildCurrentTierByCustomerId(List<Customer> customers) {
         Map<String, TierCustomer> result = new LinkedHashMap<>();
+        LocalDateTime now = LocalDateTime.now();
         for (Customer customer : customers) {
-            TierHistory currentHistory = findTierHistoryEffectiveAt(customer.getId(), LocalDateTime.now());
+            TierHistory currentHistory = customerTierService.findTierHistoryEffectiveAt(customer.getId(), now);
             if (currentHistory != null) {
                 result.put(customer.getId(), currentHistory.getTierCustomer());
             }
@@ -83,20 +85,4 @@ public class CustomerDashboardService {
         return result;
     }
 
-    private TierHistory findTierHistoryEffectiveAt(String customerId, LocalDateTime targetTime) {
-        if (customerId == null || customerId.isBlank() || targetTime == null) {
-            return null;
-        }
-        TierHistory currentOpenHistory = tierHistoryRepository
-                .findTopByCustomerIdAndStartDateLessThanEqualAndEndDateIsNullOrderByStartDateDesc(customerId, targetTime)
-                .orElse(null);
-        TierHistory currentClosedHistory = tierHistoryRepository
-                .findTopByCustomerIdAndStartDateLessThanEqualAndEndDateGreaterThanOrderByStartDateDesc(customerId, targetTime, targetTime)
-                .orElse(null);
-
-        if (currentOpenHistory == null) return currentClosedHistory;
-        if (currentClosedHistory == null) return currentOpenHistory;
-
-        return currentClosedHistory.getStartDate().isAfter(currentOpenHistory.getStartDate()) ? currentClosedHistory : currentOpenHistory;
-    }
 }

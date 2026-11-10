@@ -71,7 +71,21 @@ public class ManagerOperationController {
         List<AppliedPeriod> appliedPeriods = appliedPeriodRepository.findAllByOrderByStartDateDesc();
         List<Amenity> allAmenities = amenityRepository.findAll();
         List<Service> services = serviceRepository.findAllByOrderByCreateDateDesc();
-        List<ServiceUsage> serviceUsages = serviceUsageRepository.findAllByOrderByTimeDesc();
+        
+        // FIX LỖI LỊCH SỬ DỊCH VỤ TRỐNG: Map thủ công để tránh @JsonIgnore
+        List<ServiceUsage> rawUsages = serviceUsageRepository.findAllByOrderByTimeDesc();
+        List<Map<String, Object>> serviceUsages = rawUsages.stream().map(u -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", u.getId());
+            map.put("time", u.getTime());
+            map.put("count", u.getCount());
+            map.put("unitPrice", u.getUnitPrice());
+            if (u.getService() != null) map.put("service", Map.of("name", u.getService().getName()));
+            if (u.getRentalDetail() != null && u.getRentalDetail().getRental() != null) {
+                map.put("rentalDetail", Map.of("rental", Map.of("id", u.getRentalDetail().getRental().getId())));
+            }
+            return map;
+        }).collect(Collectors.toList());
 
         Map<String, Object> response = new HashMap<>();
         response.put("allAmenities", allAmenities);
@@ -95,8 +109,8 @@ public class ManagerOperationController {
         response.put("activeServiceCount", services.stream().filter(item -> item.getStatus() == ServiceStatus.ACTIVE).count());
         response.put("suspendedServiceCount", services.stream().filter(item -> item.getStatus() == ServiceStatus.SUSPENDED).count());
         response.put("serviceUsageCount", serviceUsages.size());
-        response.put("popularServiceSummary", managerOperationService.buildPopularServiceSummary(services, serviceUsages));
-        response.put("revenueByService", managerOperationService.buildRevenueByService(services, serviceUsages));
+        response.put("popularServiceSummary", managerOperationService.buildPopularServiceSummary(services, rawUsages));
+        response.put("revenueByService", managerOperationService.buildRevenueByService(services, rawUsages));
 
         return ResponseEntity.ok(response);
     }
@@ -165,13 +179,11 @@ public class ManagerOperationController {
         List<RoomAmenity> currentAmenities = roomAmenityRepository.findByRoomType(roomType);
         List<String> currentIds = currentAmenities.stream().map(ra -> ra.getAmenity().getId()).collect(Collectors.toList());
         
-        // Find amenities to delete
         List<RoomAmenity> toDelete = currentAmenities.stream()
             .filter(ra -> !selectedIds.contains(ra.getAmenity().getId()))
             .collect(Collectors.toList());
         roomAmenityRepository.deleteAll(toDelete);
 
-        // Find amenities to add
         List<String> newIds = selectedIds.stream().filter(aid -> !currentIds.contains(aid)).collect(Collectors.toList());
         if (!newIds.isEmpty()) {
             amenityRepository.findAllById(newIds).forEach(amenity -> {
@@ -204,7 +216,6 @@ public class ManagerOperationController {
         roomType.setBed(request.getBed() == null ? "" : request.getBed().trim());
         roomType.setArea(request.getArea());
         roomType.setBasePrice(request.getBasePrice());
-        // THÊM: Map trường dailyPrice từ Request sang Entity
         roomType.setDailyPrice(request.getDailyPrice());
         roomType.setDepositPercent(request.getDepositPercent());
         roomType.setDescription(request.getDescription() == null || request.getDescription().isBlank() ? null : request.getDescription().trim());
@@ -282,7 +293,6 @@ public class ManagerOperationController {
         Double surchargeAmount = Double.valueOf(payload.get("surchargeAmount").toString());
 
         String trimmedEventName = eventName == null ? "" : eventName.trim();
-        // Kiểm tra hợp lệ: Tên không rỗng và % phải nằm trong khoảng -100 đến 100
         if (trimmedEventName.isBlank() || surchargeAmount == null || surchargeAmount < -100 || surchargeAmount > 100) {
             return ResponseEntity.badRequest().body(Map.of("error", "Dữ liệu không hợp lệ. Mức % phải từ -100 đến 100."));
         }
@@ -343,18 +353,15 @@ public class ManagerOperationController {
                 ap = appliedPeriodRepository.findById(appliedPeriodId).orElse(null);
                 if (ap == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy kỳ áp dụng."));
                 
-                // Khóa sửa nếu kỳ áp dụng đã kết thúc trong quá khứ
                 if (ap.getEndDate() != null && ap.getEndDate().isBefore(LocalDateTime.now())) {
                     return ResponseEntity.badRequest().body(Map.of("error", "Kỳ áp dụng đã kết thúc, không thể sửa."));
                 }
             }
             
-            // THUẬT TOÁN KIỂM TRA TRÙNG LỊCH (OVERLAP CHECK)
             List<AppliedPeriod> existingPeriods = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(roomTypeId);
             boolean isOverlapping = existingPeriods.stream().anyMatch(p -> {
                 if (p.getStartDate() == null || p.getEndDate() == null) return false;
-                if (!isCreate && p.getId().equals(appliedPeriodId)) return false; // Bỏ qua chính nó khi sửa
-                // Điều kiện trùng lịch: (Bắt đầu mới < Kết thúc cũ) VÀ (Kết thúc mới > Bắt đầu cũ)
+                if (!isCreate && p.getId().equals(appliedPeriodId)) return false; 
                 return start.isBefore(p.getEndDate()) && end.isAfter(p.getStartDate());
             });
 
@@ -383,7 +390,6 @@ public class ManagerOperationController {
         
         AppliedPeriod ap = appliedPeriodRepository.findById(id).orElse(null);
         if (ap != null) {
-            // Kiểm tra: Nếu kỳ áp dụng đã kết thúc trong quá khứ thì chặn xóa
             if (ap.getEndDate() != null && ap.getEndDate().isBefore(LocalDateTime.now())) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Kỳ áp dụng đã kết thúc, không thể xóa để bảo toàn dữ liệu lịch sử."));
             }
@@ -482,8 +488,14 @@ public class ManagerOperationController {
         }
     }
 
+    // FIX LỖI DROPLIST: Bổ sung tham số nhận tháng/năm từ frontend
     @GetMapping("/dashboard-stats")
-    public ResponseEntity<?> getDashboardStats() {
+    public ResponseEntity<?> getDashboardStats(
+            @RequestParam(required = false) Integer topRoomMonth,
+            @RequestParam(required = false) Integer topRoomYear,
+            @RequestParam(required = false) Integer topServiceMonth,
+            @RequestParam(required = false) Integer topServiceYear) {
+                
         if (!hasOperationAccess()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
 
         Map<String, Object> stats = new HashMap<>();
@@ -512,7 +524,7 @@ public class ManagerOperationController {
             "maintenanceRooms", maintenance
         ));
 
-        // 3. DOANH THU THEO LOẠI PHÒNG (Cho Biểu đồ tròn số 2)
+        // 3. DOANH THU THEO LOẠI PHÒNG
         List<Object[]> roomTypeRevQuery = billRepository.sumRevenueByRoomType();
         List<String> roomTypeNames = new ArrayList<>();
         List<Double> roomTypeRevenues = new ArrayList<>();
@@ -523,7 +535,7 @@ public class ManagerOperationController {
         stats.put("roomTypeRevLabels", roomTypeNames);
         stats.put("roomTypeRevValues", roomTypeRevenues);
 
-        // 4. DOANH THU THEO DỊCH VỤ (Cho Biểu đồ tròn số 3)
+        // 4. DOANH THU THEO DỊCH VỤ
         List<Object[]> serviceRevQuery = serviceUsageRepository.sumRevenueByService();
         List<String> serviceNames = new ArrayList<>();
         List<Double> serviceRevenues = new ArrayList<>();
@@ -534,10 +546,10 @@ public class ManagerOperationController {
         stats.put("serviceRevLabels", serviceNames);
         stats.put("serviceRevValues", serviceRevenues);
 
-        // 5. TOP HẠNG PHÒNG ĐẶT NHIỀU (Có thể nhận tham số tháng/năm từ request hoặc mặc định hiện tại)
-        int currentMonth = java.time.LocalDate.now().getMonthValue();
-        int currentYear = java.time.LocalDate.now().getYear();
-        List<Object[]> topRoomsQuery = rentalDetailRepository.getTopRoomTypesByMonth(currentMonth, currentYear);
+        // 5. TOP HẠNG PHÒNG ĐẶT NHIỀU (Dùng tham số thay vì hardcode)
+        int currentRMonth = topRoomMonth != null ? topRoomMonth : java.time.LocalDate.now().getMonthValue();
+        int currentRYear = topRoomYear != null ? topRoomYear : java.time.LocalDate.now().getYear();
+        List<Object[]> topRoomsQuery = rentalDetailRepository.getTopRoomTypesByMonth(currentRMonth, currentRYear);
         List<Map<String, Object>> topRoomsList = new ArrayList<>();
         for (Object[] row : topRoomsQuery) {
             topRoomsList.add(Map.of(
@@ -548,11 +560,11 @@ public class ManagerOperationController {
         }
         stats.put("topRoomsList", topRoomsList);
 
-        // 6. SỐ LƯỢT THUÊ THEO TUẦN (Cho Biểu đồ cột tuần)
+        // 6. SỐ LƯỢT THUÊ THEO TUẦN 
         List<Object[]> weeklyQuery = rentalDetailRepository.getWeeklyBookingCounts();
-        long[] weeklyCounts = new long[7]; // Từ Thứ 2 đến Chủ Nhật
+        long[] weeklyCounts = new long[7]; 
         for (Object[] row : weeklyQuery) {
-            int dow = ((Number) row[0]).intValue(); // 1 là Thứ Hai, 7 là Chủ Nhật trong ISO DOW
+            int dow = ((Number) row[0]).intValue(); 
             long count = ((Number) row[1]).longValue();
             if (dow >= 1 && dow <= 7) {
                 weeklyCounts[dow - 1] = count;
@@ -578,13 +590,17 @@ public class ManagerOperationController {
         }
         stats.put("todayTasks", todayTasks);
 
-        List<Object[]> top5Query = serviceUsageRepository.getTop5ServicesThisMonth(org.springframework.data.domain.PageRequest.of(0, 5));
+        // 7. TOP DỊCH VỤ BÁN CHẠY (Dùng tham số thay vì hardcode)
+        int currentSMonth = topServiceMonth != null ? topServiceMonth : java.time.LocalDate.now().getMonthValue();
+        int currentSYear = topServiceYear != null ? topServiceYear : java.time.LocalDate.now().getYear();
+        List<Object[]> top5Query = serviceUsageRepository.getTopServicesByMonth(currentSMonth, currentSYear, org.springframework.data.domain.PageRequest.of(0, 5));
         List<Map<String, Object>> topServices = new ArrayList<>();
         for (Object[] row : top5Query) {
             topServices.add(Map.of("name", row[0], "sold", row[1], "revenue", row[2]));
         }
         stats.put("topServices", topServices);
 
+        // 8. DOANH THU 12 THÁNG
         Map<String, List<Double>> monthlyRevenue = new HashMap<>();
         int[] yearsToFetch = {2024, 2025, 2026};
         for (int year : yearsToFetch) {
@@ -600,6 +616,7 @@ public class ManagerOperationController {
         }
         stats.put("monthlyRevenue", monthlyRevenue);
 
+        // 9. DOANH THU DỊCH VỤ 12 THÁNG
         Map<String, Map<String, List<Long>>> monthlyServices = new HashMap<>();
         List<Service> allServices = serviceRepository.findAll();
         for (int year : yearsToFetch) {

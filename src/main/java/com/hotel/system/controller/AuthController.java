@@ -7,10 +7,13 @@ import com.hotel.system.entity.Users;
 import com.hotel.system.entity.enums.AccountState;
 import com.hotel.system.repository.AccountRepository;
 import com.hotel.system.repository.AccountStatusRepository;
+import com.hotel.system.repository.ManagerRepository;
+import com.hotel.system.repository.StaffRepository;
 import com.hotel.system.repository.UsersRepository;
 import com.hotel.system.security.JwtTokenProvider;
 import com.hotel.system.service.AuthService;
 import com.hotel.system.service.LoginAttemptService;
+import com.hotel.system.util.AppUtils;
 import com.hotel.system.util.PasswordUtils;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
@@ -37,9 +40,9 @@ public class AuthController {
     private final AccountStatusRepository accountStatusRepository;
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
-    private final com.hotel.system.repository.ManagerRepository managerRepository;
+    private final ManagerRepository managerRepository;
+    private final StaffRepository staffRepository;
     private final LoginAttemptService loginAttemptService;
-    private final com.hotel.system.repository.StaffRepository staffRepository;
 
     @Data
     public static class LoginRequest {
@@ -61,7 +64,7 @@ public class AuthController {
 
         Optional<Users> userOpt = usersRepository.findByEmail(trimmedEmail);
         if (userOpt.isEmpty()) {
-            loginAttemptService.loginFailed(trimmedEmail); // Ghi nhận đăng nhập sai
+            loginAttemptService.loginFailed(trimmedEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Email hoặc mật khẩu không đúng!"));
         }
         
@@ -69,7 +72,6 @@ public class AuthController {
         String roleName = user.getRole() != null ? user.getRole().name() : "CUSTOMER";
         boolean isCustomer = roleName.equals("CUSTOMER");
 
-        // Chặn truy cập chéo cổng
         if (loginRequest.isEmployee() && isCustomer) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Tài khoản không có quyền truy cập cổng nội bộ!"));
         }
@@ -95,13 +97,13 @@ public class AuthController {
 
         Optional<Account> accountOpt = accountRepository.findById(user.getId());
         if (accountOpt.isEmpty()) {
-            loginAttemptService.loginFailed(trimmedEmail); // Ghi nhận đăng nhập sai
+            loginAttemptService.loginFailed(trimmedEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Email hoặc mật khẩu không đúng!"));
         }
 
         Account account = accountOpt.get();
         if (!PasswordUtils.matches(loginRequest.getPassword(), account.getPassword())) {
-            loginAttemptService.loginFailed(trimmedEmail); // Ghi nhận sai mật khẩu
+            loginAttemptService.loginFailed(trimmedEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Email hoặc mật khẩu không đúng!"));
         }
 
@@ -120,31 +122,26 @@ public class AuthController {
             accountRepository.save(account);
         }
 
-        // Đăng nhập thành công -> Reset bộ đếm lỗi
         loginAttemptService.loginSucceeded(trimmedEmail);
 
-        // Tạo JWT Token
         UserDetails userDetails = User.withUsername(user.getEmail())
                 .password(account.getPassword())
                 .authorities(roleName)
                 .build();
         String token = jwtTokenProvider.generateToken(userDetails);
 
-        // Đóng gói thông tin User để trả về Frontend
         Map<String, Object> userMap = new HashMap<>();
         userMap.put("id", user.getId());
         userMap.put("email", user.getEmail());
-        userMap.put("fullName", user.getFirstName() + " " + user.getLastName());
+        userMap.put("fullName", AppUtils.buildFullName(user, "N/A"));
         userMap.put("avatar", user.getAvatar() != null ? user.getAvatar() : "");
 
-        // TỰ ĐỘNG LẤY CHỨC DANH NẾU LÀ MANAGER
         if (roleName.equals("MANAGER")) {
             managerRepository.findById(user.getId()).ifPresent(manager -> {
                 userMap.put("title", manager.getTitle().name());
             });
         }
 
-        // Trả về JSON cho Vue lưu vào LocalStorage/Cookie
         Map<String, Object> response = new HashMap<>();
         response.put("token", token);
         response.put("role", roleName);

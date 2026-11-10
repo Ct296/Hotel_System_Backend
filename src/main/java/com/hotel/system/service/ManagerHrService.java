@@ -220,11 +220,15 @@ public class ManagerHrService {
                             case CHECKED_IN -> "badge bg-success text-white";
                             case COMPLETED -> "badge bg-primary text-white";
                             case MISSED -> "badge bg-danger text-white";
-                            case FORGOT_CHECKOUT -> "badge bg-warning text-dark"; // MÀU VÀNG CẢNH BÁO
+                            case FORGOT_CHECKOUT -> "badge bg-warning text-dark"; 
                             default -> "badge bg-secondary text-white";
                         };
-                        // Đã truyền đủ 7 tham số
-                        return new StaffMiniView(a.getId(), a.getStaff().getId(), shortNameOf(a.getStaff()), fullNameOf(a.getStaff()), a.getNote(), status.getDisplayName(), badgeClass);
+                        
+                        String checkinText = (hw != null && hw.getCheckinTime() != null) ? hw.getCheckinTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "--:--";
+                        String checkoutText = (hw != null && hw.getCheckoutTime() != null) ? hw.getCheckoutTime().format(DateTimeFormatter.ofPattern("HH:mm")) : "--:--";
+                        String statusTextWithTime = status.getDisplayName() + " (" + checkinText + " - " + checkoutText + ")";
+
+                        return new StaffMiniView(a.getId(), a.getStaff().getId(), shortNameOf(a.getStaff()), fullNameOf(a.getStaff()), a.getNote(), statusTextWithTime, badgeClass);
                     })
                     .toList();
 

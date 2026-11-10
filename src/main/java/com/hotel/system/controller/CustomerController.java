@@ -7,17 +7,16 @@ import com.hotel.system.dto.vnpay.VnpayPaymentResult;
 import com.hotel.system.entity.*;
 import com.hotel.system.entity.enums.*;
 import com.hotel.system.repository.*;
+import com.hotel.system.security.SecurityUtils;
 import com.hotel.system.service.*;
 import com.hotel.system.util.AppUtils;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +29,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
+@RequiredArgsConstructor
 public class CustomerController {
 
     private static final Set<RentalDetailStatus> BLOCKING_BOOKING_STATUSES = EnumSet.of(
@@ -61,7 +61,6 @@ public class CustomerController {
     private final PaymentRepository paymentRepository;
     private final ServiceRepository serviceRepository;
     private final AppliedPeriodRepository appliedPeriodRepository;
-    private final UsersRepository usersRepository;
     private final AccountStatusRepository accountStatusRepository;
 
     private final VnpayService vnpayService;
@@ -69,53 +68,15 @@ public class CustomerController {
     private final ProfileService profileService;
     private final RentalOperationService rentalOperationService;
     private final CustomerTierService customerTierService;
+    private final SecurityUtils securityUtils;
 
     private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice, String eventName, double surchargeAmount) {}
     private record HomeRoomTypeView(RoomType roomType, double displayPrice, double basePrice, String eventName, double surchargeAmount) {}
 
-    public CustomerController(RoomTypeRepository roomTypeRepository, RoomRepository roomRepository,
-                              RoomImageRepository roomImageRepository, CustomerRepository customerRepository,
-                              RentalRepository rentalRepository, TierHistoryRepository tierHistoryRepository,
-                              ReviewRepository reviewRepository, BillRepository billRepository,
-                              PaymentRepository paymentRepository, ServiceRepository serviceRepository,
-                              AppliedPeriodRepository appliedPeriodRepository, UsersRepository usersRepository,
-                              AccountStatusRepository accountStatusRepository,
-                              VnpayService vnpayService, CustomerBookingService customerBookingService,
-                              ProfileService profileService, RentalOperationService rentalOperationService,
-                              CustomerTierService customerTierService) {
-        this.roomTypeRepository = roomTypeRepository;
-        this.roomRepository = roomRepository;
-        this.roomImageRepository = roomImageRepository;
-        this.customerRepository = customerRepository;
-        this.rentalRepository = rentalRepository;
-        this.tierHistoryRepository = tierHistoryRepository;
-        this.reviewRepository = reviewRepository;
-        this.billRepository = billRepository;
-        this.paymentRepository = paymentRepository;
-        this.serviceRepository = serviceRepository;
-        this.appliedPeriodRepository = appliedPeriodRepository;
-        this.usersRepository = usersRepository;
-        this.accountStatusRepository = accountStatusRepository;
-        this.vnpayService = vnpayService;
-        this.customerBookingService = customerBookingService;
-        this.profileService = profileService;
-        this.rentalOperationService = rentalOperationService;
-        this.customerTierService = customerTierService;
-    }
-
-    // Helper: Lấy User hiện tại từ JWT Security Context, chỉ trả về User có Role CUSTOMER
     private Users getLoggedInCustomer() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof UserDetails userDetails) {
-            Optional<Users> userOpt = usersRepository.findByEmail(userDetails.getUsername());
-            if (userOpt.isPresent() && userOpt.get().getRole() == Role.CUSTOMER) {
-                return userOpt.get();
-            }
-        }
-        return null;
+        return securityUtils.getCurrentUserWithRole(Role.CUSTOMER);
     }
 
-    // Helper: Lấy thời gian tối thiểu để bắt đầu đặt phòng (Hiện tại + bookingHoldMinutes)
     @GetMapping("/api/public/home")
     public ResponseEntity<?> home() {
         LocalDateTime now = LocalDateTime.now();
@@ -172,7 +133,6 @@ public class CustomerController {
             r.put("eventName", view.eventName());
             r.put("surchargeAmount", view.surchargeAmount());
 
-            // Gom danh sách ảnh từ các phòng thuộc loại phòng này để hiển thị slider trên trang Home
             List<String> typeImages = roomRepository.findByRoomTypeId(rt.getId()).stream()
                     .flatMap(room -> getRoomGalleryPaths(room).stream())
                     .filter(img -> img != null && !img.contains("default_room.jpg"))
@@ -193,7 +153,6 @@ public class CustomerController {
         ));
     }
 
-    // Helper: Lấy giá cơ bản của loại phòng, nếu null thì trả về 0.0
     @GetMapping("/api/public/rooms")
     public ResponseEntity<?> rooms(@RequestParam(required = false) String typeId,
                                    @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime checkIn,
@@ -216,7 +175,6 @@ public class CustomerController {
                 .filter(room -> typeId == null || typeId.isBlank() || (room.getRoomType() != null && typeId.equals(room.getRoomType().getId())))
                 .filter(room -> isRoomAvailable(room, searchCheckIn, searchCheckOut))
                 .map(room -> {
-                    List<String> images = getRoomGalleryPaths(room);
                     double basePrice = room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
                                          
                     AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(room.getRoomType().getId())
@@ -237,7 +195,7 @@ public class CustomerController {
                 })
                 .sorted(resolveRoomSort(sortBy)).toList();
 
-        List responseRooms = new ArrayList<>();
+        List<Map<String, Object>> responseRooms = new ArrayList<>();
         for (RoomCardView view : roomCards) {
             Map<String, Object> r = new HashMap<>();
             r.put("id", view.room().getId());
@@ -259,19 +217,16 @@ public class CustomerController {
         ));
     }
 
-    // Helper: Lấy thời gian tối thiểu để bắt đầu đặt phòng (Hiện tại + bookingHoldMinutes)
     @GetMapping("/api/public/services")
     public ResponseEntity<?> services() {
         return ResponseEntity.ok(serviceRepository.findByStatusOrderByCreateDateDesc(ServiceStatus.ACTIVE));
     }
 
-    // API: Lấy danh sách feedback từ khách hàng (Công khai)
     @GetMapping("/api/public/feedback")
     public ResponseEntity<?> getAllFeedback() {
         return ResponseEntity.ok(reviewRepository.findAllByOrderByUpdateDateDesc());
     }
 
-    // API: Tính toán chi phí đặt phòng dựa trên các phòng đã chọn, thời gian check-in/check-out và loại thuê (hourly/daily)
     @PostMapping("/api/customer/booking/calculate")
     public ResponseEntity<?> calculateBooking(@RequestBody Map<String, Object> payload) {
         List<String> roomIds = (List<String>) payload.get("roomId");
@@ -322,7 +277,6 @@ public class CustomerController {
         double originalRoomSubTotal = calculateRoomSubTotal(originalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
         double roomSubTotal = calculateRoomSubTotal(totalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
         double eventSurchargeAmount = roomSubTotal - originalRoomSubTotal; 
-        
         double totalPrice = roomSubTotal; 
         
         double totalDepositAmount = 0;
@@ -336,11 +290,9 @@ public class CustomerController {
         response.put("checkIn", finalCheckIn);
         response.put("checkOut", finalCheckOut);
         response.put("stayHours", stayHours);
-        
         response.put("originalRoomSubTotal", originalRoomSubTotal);
         response.put("eventSurchargeAmount", eventSurchargeAmount);
         response.put("shortStaySurchargeAmount", 0.0); 
-        
         response.put("totalPrice", totalPrice);
         response.put("depositAmount", totalDepositAmount);
         response.put("remainingAmount", totalPrice - totalDepositAmount);
@@ -350,7 +302,6 @@ public class CustomerController {
         return ResponseEntity.ok(response);
     }
 
-    // API: Xác nhận đặt phòng, tạo Rental và gửi thông tin thanh toán cọc qua VNPay
     @PostMapping("/api/customer/booking/confirm")
     public ResponseEntity<?> confirmBooking(@Valid @RequestBody BookingConfirmRequest request, BindingResult bindingResult) {
         Users currentUser = getLoggedInCustomer();
@@ -372,7 +323,6 @@ public class CustomerController {
         }
     }
 
-    // API: Chuyển hướng khách hàng đến VNPay để thanh toán cọc cho booking
     @PostMapping("/api/customer/booking/payment/vnpay")
     public ResponseEntity<?> redirectToVnpay(@RequestBody Map<String, String> payload) {
         Users currentUser = getLoggedInCustomer();
@@ -424,10 +374,8 @@ public class CustomerController {
         }
     }
 
-    // API: Xử lý callback từ VNPay sau khi khách hàng thanh toán cọc, cập nhật trạng thái booking và tạo Bill/Payment
     @GetMapping("/api/public/vnpay-return")
     public void handleVnpayReturn(@RequestParam Map<String, String> params, HttpServletResponse response) throws IOException {
-        
         String frontendRedirectUrl = this.frontendReturnUrl; 
 
         VnpayPaymentResult paymentResult = vnpayService.parsePaymentResult(params);
@@ -486,7 +434,6 @@ public class CustomerController {
         response.sendRedirect(frontendRedirectUrl + "?status=success");
     }
 
-    // API: Hủy booking của chính khách hàng, trả lại cọc nếu có
     @PostMapping("/api/customer/rentals/cancel")
     public ResponseEntity<?> cancelOwnBooking(@RequestBody Map<String, String> payload) {
         Users currentUser = getLoggedInCustomer();
@@ -503,7 +450,6 @@ public class CustomerController {
         }
     }
 
-    // API: Lấy thông tin hồ sơ khách hàng, danh sách booking, hóa đơn và thanh toán liên quan
     @GetMapping("/api/customer/profile")
     public ResponseEntity<?> profile() {
         Users currentUser = getLoggedInCustomer();
@@ -537,7 +483,6 @@ public class CustomerController {
         ));
     }
 
-    // API: Cập nhật thông tin hồ sơ khách hàng, bao gồm tên, số điện thoại, địa chỉ và ảnh đại diện
     @PutMapping("/api/customer/profile/update")
     public ResponseEntity<?> updateProfile(@Valid @ModelAttribute ProfileUpdateRequest request, BindingResult bindingResult) {
         Users currentUser = getLoggedInCustomer();
@@ -554,7 +499,6 @@ public class CustomerController {
         }
     }
 
-    // API: Đổi mật khẩu cho khách hàng, yêu cầu mật khẩu hiện tại và mật khẩu mới
     @PutMapping("/api/customer/profile/change-password")
     public ResponseEntity<?> changePassword(@Valid @RequestBody ChangePasswordRequest request, BindingResult bindingResult) {
         Users currentUser = getLoggedInCustomer();
@@ -571,7 +515,6 @@ public class CustomerController {
         }
     }
 
-    // API: Lấy danh sách trạng thái tài khoản của khách hàng, bao gồm các thay đổi về hạng thành viên và các sự kiện liên quan
     @GetMapping("/api/customer/profile/account-statuses")
     public ResponseEntity<?> getCustomerAccountStatuses() {
         Users currentUser = getLoggedInCustomer();
@@ -582,7 +525,6 @@ public class CustomerController {
         return ResponseEntity.ok(statuses);
     }
 
-    // API: Lấy đánh giá của chính khách hàng, nếu chưa đánh giá thì trả về chuỗi rỗng
     @GetMapping("/api/customer/feedback/my")
     public ResponseEntity<?> getMyFeedback() {
         Users currentUser = getLoggedInCustomer();
@@ -592,7 +534,6 @@ public class CustomerController {
         return ResponseEntity.ok(Map.of("myReview", myReview != null ? myReview : ""));
     }
 
-    // API: Khách hàng gửi đánh giá, nếu đã đánh giá rồi thì trả về lỗi
     @PostMapping("/api/customer/feedback")
     public ResponseEntity<?> submitFeedback(@RequestBody Map<String, Object> payload) {
         Users currentUser = getLoggedInCustomer();
@@ -613,7 +554,6 @@ public class CustomerController {
         return ResponseEntity.ok(Map.of("message", "Cám ơn đánh giá của bạn."));
     }
 
-    // API: Khách hàng cập nhật đánh giá, nếu chưa đánh giá thì trả về lỗi
     @PutMapping("/api/customer/feedback")
     public ResponseEntity<?> updateFeedback(@RequestBody Map<String, Object> payload) {
         Users currentUser = getLoggedInCustomer();
@@ -630,7 +570,6 @@ public class CustomerController {
         return ResponseEntity.ok(Map.of("message", "Cập nhật đánh giá thành công."));
     }
 
-    // API: Khách hàng xóa đánh giá, nếu chưa đánh giá thì trả về lỗi
     @DeleteMapping("/api/customer/feedback")
     public ResponseEntity<?> deleteFeedback() {
         Users currentUser = getLoggedInCustomer();
@@ -640,12 +579,10 @@ public class CustomerController {
         return ResponseEntity.ok(Map.of("message", "Đã xóa đánh giá."));
     }
 
-    // Helper: Kiểm tra xem phòng có khả dụng trong khoảng thời gian check-in/check-out hay không
     private boolean isRoomAvailable(Room room, LocalDateTime checkIn, LocalDateTime checkOut) {
         return findBlockingRentalConflict(room, checkIn, checkOut) == null;
     }
 
-    // Helper: Tìm kiếm Rental đang bận lịch (trạng thái BLOCKING_BOOKING_STATUSES) trùng với khoảng thời gian check-in/check-out của phòng
     private Rental findBlockingRentalConflict(Room room, LocalDateTime checkIn, LocalDateTime checkOut) {
         if (room == null || room.getStatus() != RoomStatus.AVAILABLE || checkIn == null || checkOut == null) return new Rental();
 
@@ -665,7 +602,6 @@ public class CustomerController {
                 }).min(Comparator.comparing(r -> r.getRentalDetails().get(0).getCheckinDate())).orElse(null);
     }
 
-    // Helper: Xây dựng chuỗi hiển thị khoảng thời gian bận lịch của Rental, ví dụ: "2024-06-01 14:00 đến 2024-06-02 12:00"
     private String buildConflictRange(Rental rental) {
         RentalDetail firstDetail = (rental != null && rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty()) ? rental.getRentalDetails().get(0) : null;
         if (firstDetail == null || firstDetail.getCheckinDate() == null || firstDetail.getLengthOfStay() == null) return "không xác định";
@@ -673,14 +609,12 @@ public class CustomerController {
         return end == null ? "không xác định" : firstDetail.getCheckinDate().format(DATE_TIME_FORMATTER) + " đến " + end.format(DATE_TIME_FORMATTER);
     }
 
-    // Helper: Tính toán số giờ lưu trú dựa trên thời gian check-in/check-out, đảm bảo tối thiểu là minimumStayHours
     private int calculateStayHours(LocalDateTime checkIn, LocalDateTime checkOut) {
         if (checkIn == null || checkOut == null) return minimumStayHours;
         long stayHours = ChronoUnit.HOURS.between(checkIn, checkOut);
         return stayHours < minimumStayHours ? minimumStayHours : (int) stayHours;
     }
 
-    // Helper: Tính toán tổng tiền phòng dựa trên giá đơn vị, thời gian check-in/check-out và loại thuê (hourly/daily)
     private double calculateRoomSubTotal(double roomUnitPrice, LocalDateTime checkIn, LocalDateTime checkOut, RentalType rentalType) {
         if (checkIn == null || checkOut == null) return 0.0;
         

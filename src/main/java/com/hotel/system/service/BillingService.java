@@ -128,19 +128,20 @@ public class BillingService {
                 || hasPaymentForBillType(rentalId, BillType.EARLY_CHECKOUT);
     }
 
-    private double resolveRoomUnitPrice(Room room, LocalDateTime effectiveMoment, RentalType rentalType) {
+    // Đổi từ private sang public và sửa công thức tính theo %
+    public double resolveRoomUnitPrice(Room room, LocalDateTime effectiveMoment, RentalType rentalType) {
         if (room == null || room.getRoomType() == null) return 0.0;
         RoomType roomType = room.getRoomType();
         
-        double price = 0.0;
+        double basePrice;
         if (rentalType == RentalType.DAILY) {
-            price = roomType.getDailyPrice() != null ? roomType.getDailyPrice() : 
-                    (roomType.getBasePrice() != null ? roomType.getBasePrice() * 22 : 0.0);
+            basePrice = roomType.getDailyPrice() != null ? roomType.getDailyPrice() : 
+                        (roomType.getBasePrice() != null ? roomType.getBasePrice() * 22 : 0.0);
         } else {
-            price = roomType.getBasePrice() == null ? 0.0 : roomType.getBasePrice();
+            basePrice = roomType.getBasePrice() == null ? 0.0 : roomType.getBasePrice();
         }
 
-        if (effectiveMoment == null || roomType.getId() == null) return price;
+        if (effectiveMoment == null || roomType.getId() == null) return basePrice;
 
         AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(roomType.getId())
                 .stream()
@@ -150,9 +151,24 @@ public class BillingService {
                 .orElse(null);
 
         if (matchedPeriod == null || matchedPeriod.getPriceRate() == null || matchedPeriod.getPriceRate().getSurchargeAmount() == null) {
-            return price;
+            return basePrice;
         }
-        return price + matchedPeriod.getPriceRate().getSurchargeAmount();
+
+        // SỬA BUG: Tính theo % thay vì cộng tiền mặt trực tiếp
+        double surchargePercent = matchedPeriod.getPriceRate().getSurchargeAmount();
+        double finalPrice = basePrice + (basePrice * (surchargePercent / 100.0));
+        return Math.max(0.0, finalPrice);
+    }
+
+    // Gộp luôn 2 hàm resolveDepositPercent & resolveDepositPercentValue bị trùng ở cuối file:
+    private double resolveDepositPercent(RoomType roomType) {
+        if (roomType == null || roomType.getDepositPercent() == null) return 0.0;
+        return Math.max(0.0, Math.min(100.0, roomType.getDepositPercent()));
+    }
+
+    private double calculateDepositAmount(double totalRoomAmount, double depositPercent) {
+        double validPercent = Math.max(0.0, Math.min(100.0, depositPercent));
+        return Math.max(totalRoomAmount, 0.0) * validPercent / 100.0;
     }
 
     private double calculateServiceAmount(Rental rental) {
@@ -233,21 +249,4 @@ public class BillingService {
         return new double[]{price * finalHours, 0.0, 0.0};
     }
 
-    private double resolveDepositPercent(RoomType roomType) {
-        if (roomType == null || roomType.getDepositPercent() == null) return 0.0;
-        double depositPercent = roomType.getDepositPercent();
-        if (depositPercent < 0) return 0.0;
-        if (depositPercent > 100) return 100.0;
-        return depositPercent;
-    }
-
-    private double calculateDepositAmount(double totalRoomAmount, double depositPercent) {
-        return Math.max(totalRoomAmount, 0.0) * resolveDepositPercentValue(depositPercent) / 100.0;
-    }
-
-    private double resolveDepositPercentValue(double depositPercent) {
-        if (depositPercent < 0) return 0.0;
-        if (depositPercent > 100) return 100.0;
-        return depositPercent;
-    }
 }

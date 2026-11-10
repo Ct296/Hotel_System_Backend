@@ -4,26 +4,23 @@ import com.hotel.system.dto.profile.ChangePasswordRequest;
 import com.hotel.system.dto.profile.ProfileUpdateRequest;
 import com.hotel.system.entity.Users;
 import com.hotel.system.entity.enums.Role;
-import com.hotel.system.repository.UsersRepository;
 import com.hotel.system.service.ProfileService;
 import com.hotel.system.repository.AccountStatusRepository;
 import com.hotel.system.entity.AccountStatus;
-import java.util.List;
+import com.hotel.system.security.SecurityUtils;
+import com.hotel.system.util.AppUtils;
 
+import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/profile")
@@ -31,25 +28,13 @@ import java.util.Optional;
 public class CommonProfileController {
 
     private final ProfileService profileService;
-    private final UsersRepository usersRepository;
     private final AccountStatusRepository accountStatusRepository;
+    private final SecurityUtils securityUtils;
 
-    // Helper: Lấy User hiện tại từ JWT Security Context, chỉ trả về User có Role khác CUSTOMER
     private Users getLoggedInInternalUser() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof UserDetails userDetails) {
-            Optional<Users> userOpt = usersRepository.findByEmail(userDetails.getUsername());
-            if (userOpt.isPresent()) {
-                Users user = userOpt.get();
-                if (user.getRole() != null && user.getRole() != Role.CUSTOMER) {
-                    return user;
-                }
-            }
-        }
-        return null;
+        return securityUtils.getCurrentInternalUser();
     }
 
-    // API: Lấy thông tin hồ sơ của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @GetMapping("")
     public ResponseEntity<?> getMyProfile() {
         Users currentUser = getLoggedInInternalUser();
@@ -57,7 +42,6 @@ public class CommonProfileController {
         return ResponseEntity.ok(currentUser);
     }
 
-    // API: Cập nhật hồ sơ của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @PutMapping("/update")
     public ResponseEntity<?> updateProfile(@Valid @ModelAttribute ProfileUpdateRequest request, BindingResult bindingResult) {
         Users currentUser = getLoggedInInternalUser();
@@ -72,7 +56,7 @@ public class CommonProfileController {
             return ResponseEntity.ok(Map.of(
                 "message", "Cập nhật hồ sơ thành công.",
                 "user", Map.of(
-                    "fullName", updatedUser.getFirstName() + " " + updatedUser.getLastName(),
+                    "fullName", AppUtils.buildFullName(updatedUser, "N/A"),
                     "avatar", updatedUser.getAvatar() != null ? updatedUser.getAvatar() : ""
                 )
             ));
@@ -81,7 +65,6 @@ public class CommonProfileController {
         }
     }
 
-    // API: Đổi mật khẩu của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @PutMapping("/change-password")
     public ResponseEntity<?> changePassword(@Valid @RequestBody ChangePasswordRequest request, BindingResult bindingResult) {
         Users currentUser = getLoggedInInternalUser();
@@ -99,7 +82,6 @@ public class CommonProfileController {
         }
     }
 
-    // API: Lấy danh sách trạng thái tài khoản của người dùng hiện tại (ADMIN, MANAGER, STAFF)
     @GetMapping("/account-statuses")
     public ResponseEntity<?> getAccountStatuses() {
         Users currentUser = getLoggedInInternalUser();
@@ -109,14 +91,13 @@ public class CommonProfileController {
                 .findByAccount_User_IdOrderByStartTimeDesc(currentUser.getId());
         return ResponseEntity.ok(statuses);
     }
-}
 
-    // Chặn lỗi upload file quá dung lượng (Trả về JSON)
     @RestControllerAdvice
-    class CommonProfileExceptionAdvice {
-    @ExceptionHandler({MaxUploadSizeExceededException.class, MultipartException.class})
-    public ResponseEntity<?> handleUploadSizeException() {
-        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(Map.of("error", "Ảnh tải lên không được vượt quá 2MB."));
+    public static class CommonProfileExceptionAdvice {
+        @ExceptionHandler({MaxUploadSizeExceededException.class, MultipartException.class})
+        public ResponseEntity<?> handleUploadSizeException() {
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                    .body(Map.of("error", "Ảnh tải lên không được vượt quá 2MB."));
+        }
     }
 }

@@ -43,7 +43,6 @@ public class ManagerCustomerController {
     private final ReviewAiExportService reviewAiExportService;
     private final ReviewAiDashboardService reviewAiDashboardService;
     private final CustomerDashboardService customerDashboardService;
-    private final ReviewAiInferenceClient reviewAiInferenceClient;
     private final AdminAccountService adminAccountService;
     private final AccountStatusRepository accountStatusRepository;
 
@@ -92,10 +91,18 @@ public class ManagerCustomerController {
         Map<String, Double> totalSpendingByCustomerId = customerDashboardService.buildTotalSpendingByCustomerId(customers);
 
         Map<String, String> accountStatusByCustomerId = new HashMap<>();
+        Map<String, String> accountStatusReasonByCustomerId = new HashMap<>(); // THÊM DÒNG NÀY
+
         for (Customer c : customers) {
             AccountStatus effectiveStatus = getEffectiveLatestStatus(c.getId());
             AccountState state = (effectiveStatus != null && effectiveStatus.getName() != null) ? effectiveStatus.getName() : AccountState.ACTIVE;
             accountStatusByCustomerId.put(c.getId(), state.name());
+            
+
+        String reason = (effectiveStatus != null && effectiveStatus.getReason() != null && !effectiveStatus.getReason().isBlank()) 
+                    ? effectiveStatus.getReason() 
+                    : "Không có ghi chú";
+            accountStatusReasonByCustomerId.put(c.getId(), reason);
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -114,6 +121,7 @@ public class ManagerCustomerController {
         response.put("currentTierByCustomerId", currentTierByCustomerId);
         response.put("totalSpendingByCustomerId", totalSpendingByCustomerId);
         response.put("accountStatusByCustomerId", accountStatusByCustomerId);
+        response.put("accountStatusReasonByCustomerId", accountStatusReasonByCustomerId);
 
         ReviewAiDashboardService.ReviewAiDashboardSummary aiSummary = reviewAiDashboardService.buildSummary();
         response.put("aiSummary", aiSummary);

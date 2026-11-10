@@ -16,15 +16,14 @@ import com.hotel.system.repository.CustomerRepository;
 import com.hotel.system.repository.ManagerRepository;
 import com.hotel.system.repository.StaffRepository;
 import com.hotel.system.repository.UsersRepository;
+import com.hotel.system.security.SecurityUtils;
 import com.hotel.system.service.AdminAccountService;
+import com.hotel.system.util.AppUtils;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
@@ -44,45 +43,23 @@ public class AdminController {
     private final CustomerRepository customerRepository;
     private final StaffRepository staffRepository;
     private final ManagerRepository managerRepository;
+    private final SecurityUtils securityUtils;
 
-    // Helper: Lấy User hiện tại từ JWT Security Context
-    private Users getCurrentAdmin() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof UserDetails userDetails) {
-            Optional<Users> userOpt = usersRepository.findByEmail(userDetails.getUsername());
-            if (userOpt.isPresent() && userOpt.get().getRole() == Role.ADMIN) {
-                return userOpt.get();
-            }
-        }
-        return null;
-    }
-
-    // Helper: Lấy trạng thái hiệu lực mới nhất của tài khoản dựa trên danh sách trạng thái
+    // Helper: Lấy trạng thái hiệu lực mới nhất của tài khoản
     private AccountStatus getEffectiveLatestStatus(String userId) {
-        List<AccountStatus> statuses = accountStatusRepository.findAll()
-                .stream()
-                .filter(status -> status.getAccount() != null
-                        && status.getAccount().getId() != null
-                        && status.getAccount().getId().equals(userId))
-                .sorted(Comparator.comparing(AccountStatus::getStartTime))
-                .toList();
-                
+        List<AccountStatus> statuses = accountStatusRepository.findByAccount_User_IdOrderByStartTimeDesc(userId);
         if (statuses.isEmpty()) return null;
-        // Duyệt ngược từ trạng thái mới nhất đến cũ nhất
-        for (int i = statuses.size() - 1; i >= 0; i--) {
-            AccountStatus status = statuses.get(i);
-            // Nếu trạng thái là ACTIVE, nó luôn có hiệu lực (cho đến khi có trạng thái khác đè lên)
+
+        LocalDateTime now = LocalDateTime.now();
+        // Danh sách đã được sắp xếp từ mới nhất đến cũ nhất (Desc)
+        for (AccountStatus status : statuses) {
             if (status.getName() == AccountState.ACTIVE) {
                 return status;
             }
-            // Nếu là LOCKED hoặc BOOKING_BLOCKED, kiểm tra xem đã hết hạn chưa
-            if (status.getEndTime() == null || !status.getEndTime().isBefore(LocalDateTime.now())) {
-                // Chưa hết hạn (vô thời hạn hoặc thời hạn ở tương lai)
+            if (status.getEndTime() == null || !status.getEndTime().isBefore(now)) {
                 return status;
             }
-            // Nếu đã hết hạn, bỏ qua và kiểm tra trạng thái trước đó trong vòng lặp
         }
-        // Nếu tất cả các trạng thái đều đã hết hạn, mặc định là không có trạng thái phạt nào có hiệu lực
         return null;
     }
 
@@ -90,20 +67,18 @@ public class AdminController {
     @GetMapping("/dashboard")
     @Transactional(readOnly = true)
     public ResponseEntity<?> getDashboardData() {
-        Users currentUser = getCurrentAdmin();
+        Users currentUser = securityUtils.getCurrentUserWithRole(Role.ADMIN);
         if (currentUser == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Vui lòng đăng nhập bằng tài khoản quản trị."));
         }
 
         long lockedAccountsCount = 0;
         
-        // TẠO MAP TRẠNG THÁI STAFF
         Map<String, WorkingStatus> staffWorkingStatuses = new HashMap<>();
         for (Staff s : staffRepository.findAll()) {
             staffWorkingStatuses.put(s.getId(), s.getWorkingStatus());
         }
 
-        // Lấy danh sách tài khoản
         List<Account> accounts = accountRepository.findAll().stream()
                 .sorted(Comparator.comparing(
                         account -> account.getUser() != null ? account.getUser().getCreateDate() : null,
@@ -114,9 +89,10 @@ public class AdminController {
         List<Map<String, Object>> accountListResponse = new ArrayList<>();
 
         for (Account account : accounts) {
-            if (account.getUser() == null || account.getUser().getId() == null) continue;
+            Users accUser = account.getUser();
+            if (accUser == null || accUser.getId() == null) continue;
             
-            String userId = account.getUser().getId();
+            String userId = accUser.getId();
             AccountStatus effectiveStatus = getEffectiveLatestStatus(userId);
             AccountState state = effectiveStatus != null && effectiveStatus.getName() != null
                     ? effectiveStatus.getName() : AccountState.ACTIVE;
@@ -125,26 +101,26 @@ public class AdminController {
 
             Map<String, Object> accInfo = new HashMap<>();
             accInfo.put("userId", userId);
-            accInfo.put("email", account.getUser().getEmail());
-            accInfo.put("fullName", account.getUser().getFirstName() + " " + account.getUser().getLastName());
-            accInfo.put("role", account.getUser().getRole());
-            accInfo.put("phoneNumber", account.getUser().getPhoneNumber());
-            accInfo.put("pid", account.getUser().getPid());
-            accInfo.put("dateOfBirth", account.getUser().getDateOfBirth());
-            accInfo.put("sex", account.getUser().getSex());
-            accInfo.put("nationality", account.getUser().getNationality());
-            accInfo.put("createDate", account.getUser().getCreateDate());
+            accInfo.put("email", accUser.getEmail());
+            accInfo.put("fullName", AppUtils.buildFullName(accUser, "N/A"));
+            accInfo.put("role", accUser.getRole());
+            accInfo.put("phoneNumber", accUser.getPhoneNumber());
+            accInfo.put("pid", accUser.getPid());
+            accInfo.put("dateOfBirth", accUser.getDateOfBirth());
+            accInfo.put("sex", accUser.getSex());
+            accInfo.put("nationality", accUser.getNationality());
+            accInfo.put("createDate", accUser.getCreateDate());
 
             accInfo.put("state", state);
             accInfo.put("reason", effectiveStatus != null ? effectiveStatus.getReason() : "");
             accInfo.put("unlockTime", effectiveStatus != null ? effectiveStatus.getEndTime() : null);
 
-            if (account.getUser().getRole() == Role.MANAGER) {
+            if (accUser.getRole() == Role.MANAGER) {
                 managerRepository.findById(userId).ifPresent(m -> {
                     accInfo.put("workingStatus", m.getWorkingStatus());
                     accInfo.put("managerTitle", m.getTitle().getDisplayName());
                 });
-            } else if (account.getUser().getRole() == Role.STAFF) {
+            } else if (accUser.getRole() == Role.STAFF) {
                 accInfo.put("workingStatus", staffWorkingStatuses.get(userId));
             }
 
@@ -164,16 +140,16 @@ public class AdminController {
         return ResponseEntity.ok(response);
     }
 
-    // 2. PROFILE ADMIN KHÁC
+    // 2. PROFILE ADMIN
     @GetMapping("/profile")
     public ResponseEntity<?> adminProfile() {
-        Users currentUser = getCurrentAdmin();
+        Users currentUser = securityUtils.getCurrentUserWithRole(Role.ADMIN);
         if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
         
         Map<String, Object> profile = new HashMap<>();
         profile.put("id", currentUser.getId());
         profile.put("email", currentUser.getEmail());
-        profile.put("fullName", currentUser.getFirstName() + " " + currentUser.getLastName());
+        profile.put("fullName", AppUtils.buildFullName(currentUser, "N/A"));
         profile.put("role", currentUser.getRole());
         return ResponseEntity.ok(profile);
     }
@@ -181,7 +157,7 @@ public class AdminController {
     // 3. TẠO TÀI KHOẢN
     @PostMapping("/accounts/create")
     public ResponseEntity<?> createAccount(@Valid @RequestBody AdminCreateAccountRequest request, BindingResult bindingResult) {
-        if (getCurrentAdmin() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        if (securityUtils.getCurrentUserWithRole(Role.ADMIN) == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
         if (bindingResult.hasErrors()) {
             return ResponseEntity.badRequest().body(Map.of("error", bindingResult.getAllErrors().get(0).getDefaultMessage()));
@@ -198,7 +174,7 @@ public class AdminController {
     // 4. CẬP NHẬT TRẠNG THÁI TÀI KHOẢN (LOCKED, ACTIVE, BOOKING_BLOCKED)
     @PutMapping("/accounts/{userId}/status")
     public ResponseEntity<?> updateAccountStatus(@PathVariable String userId, @RequestBody Map<String, Object> payload) {
-        Users currentUser = getCurrentAdmin();
+        Users currentUser = securityUtils.getCurrentUserWithRole(Role.ADMIN);
         if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         
         if (currentUser.getId().equals(userId)) {
@@ -222,10 +198,10 @@ public class AdminController {
         }
     }
 
-    // 6. CẬP NHẬT TRẠNG THÁI MANAGER
+    // 5. CẬP NHẬT TRẠNG THÁI MANAGER
     @PostMapping("/managers/{managerId}/update-status")
     public ResponseEntity<?> updateManagerWorkingStatus(@PathVariable String managerId, @RequestBody Map<String, String> payload) {
-        if (getCurrentAdmin() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        if (securityUtils.getCurrentUserWithRole(Role.ADMIN) == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
         try {
             Manager manager = managerRepository.findById(managerId)
@@ -248,5 +224,4 @@ public class AdminController {
             return ResponseEntity.badRequest().body(Map.of("error", "Lỗi: " + e.getMessage()));
         }
     }
-
 }

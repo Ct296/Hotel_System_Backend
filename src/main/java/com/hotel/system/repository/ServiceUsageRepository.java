@@ -8,8 +8,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import java.util.List;
 
-import java.util.List;
-
 @Repository
 public interface ServiceUsageRepository extends JpaRepository<ServiceUsage, String> {
 
@@ -43,4 +41,12 @@ public interface ServiceUsageRepository extends JpaRepository<ServiceUsage, Stri
     """)
     List<Object[]> sumRevenueByService();
 
+
+    // 4. Top dịch vụ bán chạy theo tháng
+    @Query("SELECT s.name, SUM(su.count), SUM(su.count * su.unitPrice) " +
+           "FROM ServiceUsage su JOIN su.service s " +
+           "WHERE EXTRACT(MONTH FROM su.time) = :month " +
+           "AND EXTRACT(YEAR FROM su.time) = :year " +
+           "GROUP BY s.id, s.name ORDER BY SUM(su.count) DESC")
+    List<Object[]> getTopServicesByMonth(@Param("month") int month, @Param("year") int year, Pageable pageable);
 }

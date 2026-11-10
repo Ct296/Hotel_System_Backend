@@ -23,7 +23,6 @@ public class CustomerBookingService {
     private final RentalDetailRepository rentalDetailRepository;
     private final RentalOperationService rentalOperationService;
     private final BillingService billingService;
-    private final AppliedPeriodRepository appliedPeriodRepository;
     
     private final AccountStatusRepository accountStatusRepository;
     private final AccountRepository accountRepository;
@@ -99,7 +98,7 @@ public class CustomerBookingService {
             
             detail.setAdultCount(request.getAdultCounts().get(i));
             detail.setChildrenCount(request.getChildrenCounts().get(i));
-            detail.setUnitPrice(resolveRoomUnitPrice(room, checkIn, type));
+            detail.setUnitPrice(billingService.resolveRoomUnitPrice(room, checkIn, type));
             detail.setStatus(RentalDetailStatus.PENDING);
             detail.setRoom(room);
             detail.setRental(rental);
@@ -177,27 +176,4 @@ public class CustomerBookingService {
         }
     }
 
-    private double resolveRoomUnitPrice(Room room, LocalDateTime checkInDate, RentalType rentalType) {
-        if (room == null || room.getRoomType() == null) return 0.0;
-        
-        double basePrice = 0.0;
-        if (rentalType == RentalType.DAILY) {
-            basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() : 
-                        (room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
-        } else {
-            basePrice = room.getRoomType().getBasePrice() == null ? 0.0 : room.getRoomType().getBasePrice();
-        }
-        
-        AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(room.getRoomType().getId())
-                .stream()
-                .filter(p -> p.getStartDate() != null && p.getEndDate() != null)
-                .filter(p -> !checkInDate.isBefore(p.getStartDate()) && !checkInDate.isAfter(p.getEndDate()))
-                .findFirst()
-                .orElse(null);
-
-        if (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null) {
-            return basePrice + matchedPeriod.getPriceRate().getSurchargeAmount();
-        }
-        return basePrice;
-    }
 }

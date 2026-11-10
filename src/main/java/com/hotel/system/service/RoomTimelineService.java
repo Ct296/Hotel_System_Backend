@@ -3,12 +3,10 @@ package com.hotel.system.service;
 import com.hotel.system.dto.timeline.RoomTimelineRowView;
 import com.hotel.system.dto.timeline.RoomTimelineSegmentView;
 import com.hotel.system.dto.timeline.TimelineSlotView;
-import com.hotel.system.entity.Bill;
 import com.hotel.system.entity.Rental;
 import com.hotel.system.entity.RentalDetail;
 import com.hotel.system.entity.Room;
 import com.hotel.system.entity.Users;
-import com.hotel.system.entity.enums.BillType;
 import com.hotel.system.entity.enums.RentalDetailStatus;
 import com.hotel.system.entity.enums.RoomStatus;
 import com.hotel.system.repository.BillRepository;
@@ -139,8 +137,8 @@ public class RoomTimelineService {
 
     private LocalDateTime resolveCleaningUntil(Room room) {
         if (room == null || room.getStatus() != RoomStatus.CLEANING || room.getId() == null) return null;
-        LocalDateTime latestCheckoutTime = findLatestCheckoutTime(room.getId());
-        return latestCheckoutTime == null ? LocalDateTime.now().plusMinutes(CLEANING_BUFFER_MINUTES) : latestCheckoutTime.plusMinutes(CLEANING_BUFFER_MINUTES);
+        LocalDateTime latestCheckoutTime = rentalOperationService.findLatestCheckoutTime(room.getId());
+        return (latestCheckoutTime == null ? LocalDateTime.now() : latestCheckoutTime).plusMinutes(CLEANING_BUFFER_MINUTES);
     }
 
     private LocalDateTime resolveNextAvailableAt(Room room, List<Rental> roomBlockingRentals, LocalDateTime cleaningUntil, LocalDateTime baseTime) {
@@ -242,15 +240,6 @@ public class RoomTimelineService {
         };
     }
 
-    private LocalDateTime findLatestCheckoutTime(String roomId) {
-        return billRepository.findAllByOrderByCreateDateDesc().stream()
-                .filter(bill -> bill.getType() == BillType.FINAL || bill.getType() == BillType.EARLY_CHECKOUT)
-                .filter(bill -> bill.getRental() != null && bill.getRental().getRentalDetails() != null && !bill.getRental().getRentalDetails().isEmpty() && bill.getRental().getRentalDetails().get(0).getRoom() != null)
-                .filter(bill -> roomId.equals(bill.getRental().getRentalDetails().get(0).getRoom().getId()))
-                .map(Bill::getCreateDate)
-                .filter(time -> time != null)
-                .max(LocalDateTime::compareTo).orElse(null);
-    }
 
     private String formatTimelineDateTime(LocalDateTime value) {
         return value == null ? "N/A" : value.format(DateTimeFormatter.ofPattern("dd/MM HH:mm"));

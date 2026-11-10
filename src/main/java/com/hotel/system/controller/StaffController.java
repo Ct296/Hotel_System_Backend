@@ -3,7 +3,6 @@ package com.hotel.system.controller;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.time.temporal.ChronoUnit;
 
 import com.hotel.system.dto.billing.BillingSummary;
@@ -17,7 +16,6 @@ import com.hotel.system.service.CustomerTierService;
 import com.hotel.system.service.RentalOperationService;
 import com.hotel.system.service.RoomTimelineService;
 import com.hotel.system.util.AppUtils;
-import com.hotel.system.util.PasswordUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -126,13 +124,16 @@ public class StaffController {
         long totalRooms = roomRepository.count();
         long busyCount = Math.max(0, totalRooms - availableCount - cleaningCount - maintenanceCount);
 
+        List<Room> allRooms = roomRepository.findAllByOrderByNameAsc();
+
         return ResponseEntity.ok(Map.of(
                 "pendingBookingCount", pendingCount,
                 "todayArrivalsCount", todayArrivalsList.size(),
                 "checkedInCount", checkedInCount,
                 "checkedOutCount", cleaningCount,
                 "todayArrivalsList", todayArrivalsList, 
-                "roomStatusCounts", List.of(availableCount, busyCount, cleaningCount, maintenanceCount) 
+                "roomStatusCounts", List.of(availableCount, busyCount, cleaningCount, maintenanceCount),
+                "rooms", allRooms
         ));
     }
 
