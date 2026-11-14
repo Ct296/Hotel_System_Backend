@@ -23,6 +23,7 @@ public class CustomerBookingService {
     private final RentalDetailRepository rentalDetailRepository;
     private final RentalOperationService rentalOperationService;
     private final BillingService billingService;
+    private final EmailService emailService;
     
     private final AccountStatusRepository accountStatusRepository;
     private final AccountRepository accountRepository;
@@ -103,6 +104,21 @@ public class CustomerBookingService {
             detail.setRoom(room);
             detail.setRental(rental);
             rentalDetailRepository.save(detail);
+            rental.getRentalDetails().add(detail);
+        }
+        // Gửi mail thông báo vừa tạo đơn (nhắc thanh toán cọc trong 15p)
+        if (customer.getUser() != null && customer.getUser().getEmail() != null) {
+            String roomNames = selectedRooms.stream().map(Room::getName).collect(java.util.stream.Collectors.joining(", "));
+            String checkInStr = checkIn.format(DateTimeFormatter.ofPattern("HH:mm - dd/MM/yyyy"));
+            double estDeposit = billingService.calculateDepositAmount(rental);
+            emailService.sendBookingCreatedPendingDepositEmail(
+                    customer.getUser().getEmail(),
+                    AppUtils.buildFullName(customer.getUser().getFirstName(), customer.getUser().getLastName()),
+                    rental.getId(),
+                    roomNames,
+                    checkInStr,
+                    AppUtils.formatMoney(estDeposit)
+            );
         }
 
         return rental;
@@ -173,6 +189,14 @@ public class CustomerBookingService {
             Account account = accountRepository.findById(customerId).orElseThrow();
             status.setAccount(account);
             accountStatusRepository.save(status);
+            if (account.getUser() != null && account.getUser().getEmail() != null) {
+                String unlockStr = status.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm - dd/MM/yyyy"));
+                emailService.sendSpamCancelPenaltyEmail(
+                        account.getUser().getEmail(),
+                        AppUtils.buildFullName(account.getUser().getFirstName(), account.getUser().getLastName()),
+                        unlockStr
+                );
+            }
         }
     }
 

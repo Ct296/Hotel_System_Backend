@@ -34,19 +34,23 @@ public class RentalOperationService {
     private final RoomRepository roomRepository;
     private final BillRepository billRepository;
     private final BillingService billingService;
-    private final CustomerBookingService customerBookingService; 
+    private final EmailService emailService;
+    private final CustomerBookingService customerBookingService;
+    
 
     public RentalOperationService(RentalRepository rentalRepository,
                                   RentalDetailRepository rentalDetailRepository,
                                   RoomRepository roomRepository,
                                   BillRepository billRepository,
                                   BillingService billingService,
+                                  EmailService emailService,
                                   @Lazy CustomerBookingService customerBookingService) {
         this.rentalRepository = rentalRepository;
         this.rentalDetailRepository = rentalDetailRepository;
         this.roomRepository = roomRepository;
         this.billRepository = billRepository;
         this.billingService = billingService;
+        this.emailService = emailService;
         this.customerBookingService = customerBookingService;
     }
 
@@ -96,6 +100,7 @@ public class RentalOperationService {
     public void expirePendingBookingsWithoutDeposit() {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime expiryThreshold = now.minusMinutes(BOOKING_HOLD_MINUTES);
+
         List<Rental> expiredBookings = rentalRepository.findAll().stream()
                 .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()))
                 .filter(rental -> rental.getStatus() == RentalStatus.PENDING)
@@ -105,20 +110,32 @@ public class RentalOperationService {
 
         for (Rental rental : expiredBookings) {
             rental.setStatus(RentalStatus.CANCELLED);
+            String roomNames = "N/A";
             if (rental.getRentalDetails() != null) {
-                for(RentalDetail detail : rental.getRentalDetails()) {
+                for (RentalDetail detail : rental.getRentalDetails()) {
                     detail.setStatus(RentalDetailStatus.CANCELLED);
                 }
+                roomNames = rental.getRentalDetails().stream()
+                        .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                        .collect(java.util.stream.Collectors.joining(", "));
             }
-            
-            // Nếu có khách hàng, gọi hàm kiểm tra và phạt (Tương đương việc khách tự tay hủy)
+            // Lưu ngay xuống DB trước khi đếm số lần hủy để phạt chính xác ở lần thứ 3
+            rentalRepository.save(rental);
+
             if (rental.getCustomer() != null && rental.getCustomer().getId() != null) {
                 customerBookingService.checkAndPenalizeSpamCancel(rental.getCustomer().getId());
+
+                if (rental.getCustomer().getUser() != null) {
+                    var u = rental.getCustomer().getUser();
+                    emailService.sendBookingCancelledEmail(
+                            u.getEmail(),
+                            com.hotel.system.util.AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
+                            rental.getId(),
+                            roomNames,
+                            "Đơn đặt phòng tự động hủy do quá thời hạn 15 phút giữ chỗ nhưng chưa thanh toán tiền cọc."
+                    );
+                }
             }
-        }
-        
-        if (!expiredBookings.isEmpty()) {
-            rentalRepository.saveAll(expiredBookings);
         }
     }
 

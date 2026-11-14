@@ -13,6 +13,7 @@ import com.hotel.system.entity.enums.*;
 import com.hotel.system.repository.*;
 import com.hotel.system.service.BillingService;
 import com.hotel.system.service.CustomerTierService;
+import com.hotel.system.service.EmailService;
 import com.hotel.system.service.RentalOperationService;
 import com.hotel.system.service.RoomTimelineService;
 import com.hotel.system.util.AppUtils;
@@ -35,6 +36,7 @@ public class StaffController {
     private final BillingService billingService;
     private final CustomerTierService customerTierService;
     private final RentalOperationService rentalOperationService;
+    private final EmailService emailService;
     private final StaffRepository staffRepository;
     private final RentalRepository rentalRepository;
     private final RentalDetailRepository rentalDetailRepository;
@@ -52,6 +54,7 @@ public class StaffController {
                            RoomTimelineService roomTimelineService,
                            CustomerTierService customerTierService,
                            RentalOperationService rentalOperationService,
+                           EmailService emailService,
                            StaffRepository staffRepository,
                            RentalRepository rentalRepository,
                            RentalDetailRepository rentalDetailRepository,
@@ -68,6 +71,7 @@ public class StaffController {
         this.roomTimelineService = roomTimelineService;
         this.customerTierService = customerTierService;
         this.rentalOperationService = rentalOperationService;
+        this.emailService = emailService;
         this.staffRepository = staffRepository;
         this.rentalRepository = rentalRepository;
         this.rentalDetailRepository = rentalDetailRepository;
@@ -520,6 +524,26 @@ public class StaffController {
         rental.setStatus(RentalStatus.CONFIRMED);
         rentalRepository.save(rental);
 
+        // Gửi mail xác nhận đã đóng cọc tiền mặt tại quầy
+        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
+            Users u = rental.getCustomer().getUser();
+            String roomNames = rental.getRentalDetails().stream()
+                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            String checkInStr = (!rental.getRentalDetails().isEmpty() && rental.getRentalDetails().get(0).getCheckinDate() != null)
+                    ? rental.getRentalDetails().get(0).getCheckinDate().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+                    : "N/A";
+            emailService.sendBookingConfirmedEmail(
+                    u.getEmail(),
+                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
+                    rental.getId(),
+                    roomNames,
+                    checkInStr,
+                    AppUtils.formatMoney(totalDepositAmount),
+                    "Tiền mặt tại quầy"
+            );
+        }
+
         return ResponseEntity.ok(Map.of("message", "Đã thu tiền cọc (Tiền mặt) thành công. Khách đã có thể Check-in."));
     }
 
@@ -537,6 +561,21 @@ public class StaffController {
             detail.setStatus(RentalDetailStatus.CANCELLED);
         }
         rentalRepository.save(rental);
+
+        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
+            Users u = rental.getCustomer().getUser();
+            String roomNames = rental.getRentalDetails().stream()
+                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            emailService.sendBookingCancelledEmail(
+                    u.getEmail(),
+                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
+                    rental.getId(),
+                    roomNames,
+                    "Đơn đặt phòng được hủy bởi nhân viên lễ tân theo yêu cầu."
+            );
+        }
+
         return ResponseEntity.ok(Map.of("message", "Đã hủy booking thành công."));
     }
 
@@ -560,6 +599,25 @@ public class StaffController {
             detail.setStatus(RentalDetailStatus.CHECKED_IN);
             rentalDetailRepository.save(detail);
         }
+
+        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
+            Users u = rental.getCustomer().getUser();
+            String roomNames = rental.getRentalDetails().stream()
+                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            LocalDateTime expectedOut = rentalOperationService.calculateExpectedCheckout(rental);
+            String outStr = expectedOut != null
+                    ? expectedOut.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+                    : "Theo quy định";
+            emailService.sendCheckInWelcomeEmail(
+                    u.getEmail(),
+                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
+                    rental.getId(),
+                    roomNames,
+                    outStr
+            );
+        }
+
         return ResponseEntity.ok(Map.of("message", "Check-in thành công cho tất cả các phòng."));
     }
 
@@ -655,6 +713,30 @@ public class StaffController {
             }
             detail.setStatus(RentalDetailStatus.CHECKED_OUT);
             rentalDetailRepository.save(detail);
+        }
+
+        // Gửi mail cảm ơn & chúc sức khỏe sau khi hoàn tất Check-out
+        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
+            Users u = rental.getCustomer().getUser();
+            String roomNames = rental.getRentalDetails().stream()
+                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            BillingSummary summary = billingService.buildBillingSummary(rental);
+            TierHistory currentTier = customerTierService.findTierHistoryEffectiveAt(rental.getCustomer().getId(), LocalDateTime.now());
+            String tierName = (currentTier != null && currentTier.getTierCustomer() != null)
+                    ? currentTier.getTierCustomer().getName() : "Thành viên";
+
+            emailService.sendCheckoutThankYouEmail(
+                    u.getEmail(),
+                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
+                    rental.getId(),
+                    roomNames,
+                    AppUtils.formatMoney(summary.roomAmount()),
+                    AppUtils.formatMoney(summary.serviceAmount()),
+                    AppUtils.formatMoney(summary.depositPaid()),
+                    AppUtils.formatMoney(summary.finalAmount()),
+                    tierName
+            );
         }
 
         return ResponseEntity.ok(Map.of("message", "Hoàn tất check-out. Các phòng chuyển sang trạng thái đang dọn dẹp."));

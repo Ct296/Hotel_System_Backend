@@ -6,6 +6,8 @@ import com.hotel.system.entity.enums.*;
 import com.hotel.system.repository.*;
 import com.hotel.system.util.AppUtils;
 import com.hotel.system.util.PasswordUtils;
+import com.hotel.system.dto.auth.ForgotPasswordRequest;
+import com.hotel.system.dto.auth.ResetPasswordRequest;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,15 @@ public class AuthService {
     public static final String PENDING_REGISTER_OTP_ATTEMPTS = "pendingRegisterOtpAttempts";
     public static final int REGISTER_OTP_EXPIRE_MINUTES = 5;
     public static final int REGISTER_OTP_MAX_ATTEMPTS = 5;
+
+    public static final String PENDING_RESET_USER_ID = "pendingResetUserId";
+    public static final String PENDING_RESET_OTP = "pendingResetOtp";
+    public static final String PENDING_RESET_OTP_EXPIRE_AT = "pendingResetOtpExpireAt";
+    public static final String PENDING_RESET_OTP_ATTEMPTS = "pendingResetOtpAttempts";
+    public static final String PENDING_RESET_OTP_VERIFIED = "pendingResetOtpVerified";
+
+    public static final int RESET_OTP_EXPIRE_MINUTES = 5;
+    public static final int RESET_OTP_MAX_ATTEMPTS = 5;
 
     // Validate thông tin đăng ký trước khi gửi OTP
     public void validateRegistration(RegisterRequest request) {
@@ -260,5 +271,127 @@ public class AuthService {
     public boolean hasPendingRegistration(HttpSession session) {
         return session.getAttribute(PENDING_REGISTER_REQUEST) != null
                 && session.getAttribute(PENDING_REGISTER_OTP) != null;
+    }
+
+    //Kiểm tra khớp Email + SĐT + CCCD và gửi OTP (5 phút)
+    public void processForgotPassword(ForgotPasswordRequest request, HttpSession session) {
+        String email = request.getEmail().trim().toLowerCase();
+        String phone = request.getPhoneNumber().trim();
+        String pid = request.getPid().trim();
+
+        Users user = usersRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("Thông tin Email, Số điện thoại hoặc CCCD không chính xác!"));
+
+        String userPhone = user.getPhoneNumber() != null ? user.getPhoneNumber().trim() : "";
+        String userPid = user.getPid() != null ? user.getPid().trim() : "";
+
+        // Đối chiếu chính xác cả 3 thông tin của cùng 1 khách hàng
+        if (!userPhone.equals(phone) || !userPid.equals(pid)) {
+            throw new IllegalArgumentException("Thông tin Email, Số điện thoại hoặc CCCD không chính xác!");
+        }
+
+        // Chỉ áp dụng cho tài khoản Khách hàng đã có Account đăng nhập
+        if (user.getRole() != Role.CUSTOMER || !accountRepository.existsById(user.getId())) {
+            throw new IllegalArgumentException("Tài khoản không hợp lệ hoặc chưa đăng ký mật khẩu trực tuyến!");
+        }
+
+        sendAndStoreResetOtp(user, session);
+    }
+
+    // Gửi lại OTP quên mật khẩu
+    public void resendForgotPasswordOtp(HttpSession session) {
+        String userId = (String) session.getAttribute(PENDING_RESET_USER_ID);
+        if (userId == null) {
+            throw new IllegalStateException("Phiên khôi phục mật khẩu đã hết hạn. Vui lòng nhập lại thông tin.");
+        }
+        Users user = usersRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("Không tìm thấy người dùng."));
+        sendAndStoreResetOtp(user, session);
+    }
+
+    private void sendAndStoreResetOtp(Users user, HttpSession session) {
+        String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000);
+        LocalDateTime expireAt = LocalDateTime.now().plusMinutes(RESET_OTP_EXPIRE_MINUTES);
+
+        session.setAttribute(PENDING_RESET_USER_ID, user.getId());
+        session.setAttribute(PENDING_RESET_OTP, otpCode);
+        session.setAttribute(PENDING_RESET_OTP_EXPIRE_AT, expireAt);
+        session.setAttribute(PENDING_RESET_OTP_ATTEMPTS, 0);
+        session.setAttribute(PENDING_RESET_OTP_VERIFIED, false);
+
+        emailService.sendForgotPasswordOtpEmail(
+                user.getEmail(),
+                AppUtils.buildFullName(user.getFirstName(), user.getLastName()),
+                otpCode,
+                RESET_OTP_EXPIRE_MINUTES
+        );
+    }
+
+    //Xác thực mã OTP 6 số
+    public void verifyForgotPasswordOtp(String enteredOtp, HttpSession session) {
+        String storedOtp = (String) session.getAttribute(PENDING_RESET_OTP);
+        LocalDateTime expireAt = (LocalDateTime) session.getAttribute(PENDING_RESET_OTP_EXPIRE_AT);
+        Integer attempts = (Integer) session.getAttribute(PENDING_RESET_OTP_ATTEMPTS);
+        String userId = (String) session.getAttribute(PENDING_RESET_USER_ID);
+
+        if (userId == null || storedOtp == null) {
+            throw new IllegalStateException("Phiên xác thực đã hết hạn. Vui lòng thực hiện lại từ đầu.");
+        }
+        if (enteredOtp == null || !enteredOtp.matches("^\\d{6}$")) {
+            throw new IllegalArgumentException("Mã OTP phải gồm đúng 6 chữ số.");
+        }
+        if (expireAt == null || LocalDateTime.now().isAfter(expireAt)) {
+            clearPendingResetPassword(session);
+            throw new IllegalStateException("Mã OTP đã hết hạn (quá 5 phút). Vui lòng thực hiện lại.");
+        }
+
+        int nextAttempts = attempts == null ? 1 : attempts + 1;
+        session.setAttribute(PENDING_RESET_OTP_ATTEMPTS, nextAttempts);
+
+        if (!enteredOtp.equals(storedOtp)) {
+            if (nextAttempts >= RESET_OTP_MAX_ATTEMPTS) {
+                clearPendingResetPassword(session);
+                throw new IllegalStateException("Bạn đã nhập sai mã OTP quá số lần cho phép. Vui lòng thực hiện lại.");
+            }
+            throw new IllegalArgumentException("Mã OTP không đúng. Bạn còn " + (RESET_OTP_MAX_ATTEMPTS - nextAttempts) + " lần thử.");
+        }
+
+        // Đánh dấu đã xác thực OTP thành công để cho phép đổi mật khẩu
+        session.setAttribute(PENDING_RESET_OTP_VERIFIED, true);
+    }
+
+    //Đặt lại mật khẩu mới sau khi OTP hợp lệ
+    @Transactional
+    public void resetPassword(ResetPasswordRequest request, HttpSession session) {
+        String userId = (String) session.getAttribute(PENDING_RESET_USER_ID);
+        Boolean verified = (Boolean) session.getAttribute(PENDING_RESET_OTP_VERIFIED);
+        LocalDateTime expireAt = (LocalDateTime) session.getAttribute(PENDING_RESET_OTP_EXPIRE_AT);
+
+        if (userId == null || !Boolean.TRUE.equals(verified)) {
+            throw new IllegalStateException("Vui lòng xác thực mã OTP trước khi đặt lại mật khẩu!");
+        }
+        if (expireAt == null || LocalDateTime.now().isAfter(expireAt.plusMinutes(5))) {
+            clearPendingResetPassword(session);
+            throw new IllegalStateException("Phiên đặt lại mật khẩu đã hết hạn. Vui lòng thực hiện lại.");
+        }
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new IllegalArgumentException("Xác nhận mật khẩu mới không khớp!");
+        }
+
+        Account account = accountRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("Không tìm thấy tài khoản."));
+
+        account.setPassword(PasswordUtils.hashPassword(request.getNewPassword()));
+        accountRepository.saveAndFlush(account);
+
+        clearPendingResetPassword(session);
+    }
+
+    public void clearPendingResetPassword(HttpSession session) {
+        session.removeAttribute(PENDING_RESET_USER_ID);
+        session.removeAttribute(PENDING_RESET_OTP);
+        session.removeAttribute(PENDING_RESET_OTP_EXPIRE_AT);
+        session.removeAttribute(PENDING_RESET_OTP_ATTEMPTS);
+        session.removeAttribute(PENDING_RESET_OTP_VERIFIED);
     }
 }

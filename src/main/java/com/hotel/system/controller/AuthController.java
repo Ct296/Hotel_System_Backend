@@ -15,6 +15,10 @@ import com.hotel.system.service.AuthService;
 import com.hotel.system.service.LoginAttemptService;
 import com.hotel.system.util.AppUtils;
 import com.hotel.system.util.PasswordUtils;
+import com.hotel.system.dto.auth.ForgotPasswordRequest;
+import com.hotel.system.dto.auth.ForgotPasswordVerifyOtpRequest;
+import com.hotel.system.dto.auth.ResetPasswordRequest;
+import org.springframework.validation.BindingResult;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.Data;
@@ -200,6 +204,75 @@ public class AuthController {
         } catch (Exception ex) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Không thể gửi lại mã xác thực. Vui lòng thử lại sau."));
+        }
+    }
+
+    // 6. YÊU CẦU QUÊN MẬT KHẨU (Kiểm tra Email, SĐT, CCCD & Gửi OTP)
+    @PostMapping("/forgot-password/request")
+    public ResponseEntity<?> requestForgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
+                                                   BindingResult bindingResult,
+                                                   HttpSession session) {
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(Map.of("error", bindingResult.getAllErrors().get(0).getDefaultMessage()));
+        }
+        try {
+            authService.clearPendingResetPassword(session);
+            authService.processForgotPassword(request, session);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Mã OTP 6 chữ số đã được gửi tới email của bạn (hiệu lực 5 phút).",
+                    "email", request.getEmail().trim()
+            ));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Không thể gửi email OTP lúc này. Vui lòng thử lại sau."));
+        }
+    }
+
+    // 7. XÁC THỰC MÃ OTP QUÊN MẬT KHẨU
+    @PostMapping("/forgot-password/verify-otp")
+    public ResponseEntity<?> verifyForgotPasswordOtp(@Valid @RequestBody ForgotPasswordVerifyOtpRequest request,
+                                                     BindingResult bindingResult,
+                                                     HttpSession session) {
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(Map.of("error", bindingResult.getAllErrors().get(0).getDefaultMessage()));
+        }
+        try {
+            authService.verifyForgotPasswordOtp(request.getOtp().trim(), session);
+            return ResponseEntity.ok(Map.of("message", "Xác thực OTP thành công. Vui lòng nhập mật khẩu mới."));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // 8. ĐẶT LẠI MẬT KHẨU MỚI
+    @PostMapping("/forgot-password/reset")
+    public ResponseEntity<?> resetForgotPassword(@Valid @RequestBody ResetPasswordRequest request,
+                                                 BindingResult bindingResult,
+                                                 HttpSession session) {
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(Map.of("error", bindingResult.getAllErrors().get(0).getDefaultMessage()));
+        }
+        try {
+            authService.resetPassword(request, session);
+            return ResponseEntity.ok(Map.of("message", "Đổi mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới."));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // 9. GỬI LẠI OTP QUÊN MẬT KHẨU
+    @PostMapping("/forgot-password/resend-otp")
+    public ResponseEntity<?> resendForgotPasswordOtp(HttpSession session) {
+        try {
+            authService.resendForgotPasswordOtp(session);
+            return ResponseEntity.ok(Map.of("message", "Mã OTP mới đã được gửi vào email của bạn."));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Không thể gửi lại mã OTP. Vui lòng thử lại sau."));
         }
     }
 }

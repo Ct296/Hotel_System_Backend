@@ -62,6 +62,7 @@ public class CustomerController {
     private final ServiceRepository serviceRepository;
     private final AppliedPeriodRepository appliedPeriodRepository;
     private final AccountStatusRepository accountStatusRepository;
+    private final EmailService emailService;
 
     private final VnpayService vnpayService;
     private final CustomerBookingService customerBookingService;
@@ -431,6 +432,24 @@ public class CustomerController {
         rental.setStatus(RentalStatus.CONFIRMED);
         rentalRepository.save(rental);
 
+        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
+            Users u = rental.getCustomer().getUser();
+            String roomNames = details.stream()
+                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                    .collect(Collectors.joining(", "));
+            String checkInStr = details.get(0).getCheckinDate() != null
+                    ? details.get(0).getCheckinDate().format(DATE_TIME_FORMATTER) : "N/A";
+            emailService.sendBookingConfirmedEmail(
+                    u.getEmail(),
+                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
+                    rental.getId(),
+                    roomNames,
+                    checkInStr,
+                    AppUtils.formatMoney(totalDepositAmount),
+                    "Chuyển khoản VNPay"
+            );
+        }
+        
         response.sendRedirect(frontendRedirectUrl + "?status=success");
     }
 
@@ -440,7 +459,27 @@ public class CustomerController {
         if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
         try {
-            double depositPaid = customerBookingService.cancelBooking(payload.get("rentalId"), currentUser.getId());
+            String rentalId = payload.get("rentalId");
+            Rental rental = rentalRepository.findById(rentalId).orElse(null);
+            String roomNames = (rental != null && rental.getRentalDetails() != null)
+                    ? rental.getRentalDetails().stream()
+                            .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                            .collect(Collectors.joining(", "))
+                    : "N/A";
+
+            double depositPaid = customerBookingService.cancelBooking(rentalId, currentUser.getId());
+
+            String cancelNote = depositPaid > 0
+                    ? "Bạn đã chủ động hủy đơn đặt phòng. Tiền cọc không hoàn lại: " + AppUtils.formatMoney(depositPaid)
+                    : "Bạn đã chủ động hủy đơn đặt phòng khi chưa thanh toán cọc.";
+            emailService.sendBookingCancelledEmail(
+                    currentUser.getEmail(),
+                    AppUtils.buildFullName(currentUser.getFirstName(), currentUser.getLastName()),
+                    rentalId,
+                    roomNames,
+                    cancelNote
+            );
+
             if (depositPaid > 0) {
                 return ResponseEntity.ok(Map.of("message", "Đã hủy booking. Mất cọc: " + AppUtils.formatMoney(depositPaid)));
             }
