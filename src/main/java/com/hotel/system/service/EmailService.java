@@ -318,10 +318,12 @@ public class EmailService {
         sendSafe(message);
     }
 
-    // 9. Thư cảm ơn & Chúc sức khỏe khi hoàn thành Check-out (Kèm tổng kết hóa đơn & nâng hạng thẻ nếu có)
+    // 9. Thư cảm ơn & Hóa đơn tất toán chi tiết khi hoàn thành Check-out
     @Async
     public void sendCheckoutThankYouEmail(String toEmail, String fullName, String rentalId, String roomNames,
-                                          String roomAmount, String serviceAmount, String depositPaid, String finalPaidAmount, String currentTierName) {
+                                          String roomBaseAmount, String earlySurcharge, String lateSurcharge,
+                                          String serviceDetailsText, String serviceTotalAmount,
+                                          String depositPaid, String finalPaidAmount, String paymentMethodName, String currentTierName) {
         if (!isValidEmail(toEmail)) return;
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(toEmail.trim());
@@ -329,20 +331,24 @@ public class EmailService {
 
         String content = "Xin chào " + safeName(fullName) + ",\n\n"
                 + "Thủ tục trả phòng (Check-out) cho đơn #" + rentalId + " (Phòng: " + roomNames + ") của quý khách tại ITHotel đã hoàn tất.\n\n"
-                + "---------------- CHI TIẾT TẤT TOÁN ----------------\n"
-                + "Tiền phòng (kèm phụ thu nếu có): " + roomAmount + "\n"
-                + "Tiền dịch vụ sử dụng: " + serviceAmount + "\n"
-                + "Tiền cọc đã trừ: -" + depositPaid + "\n"
-                + "Thanh toán cuối khi trả phòng: " + finalPaidAmount + "\n"
-                + "Hạng thẻ thành viên hiện tại: " + safeText(currentTierName, "Thành viên") + "\n"
-                + "---------------------------------------------------\n\n"
+                + "================ HÓA ĐƠN TẤT TOÁN ================\n"
+                + "1. Tiền phòng gốc: " + roomBaseAmount + "\n"
+                + "   - Phụ thu nhận phòng sớm: " + earlySurcharge + "\n"
+                + "   - Phụ thu trả phòng muộn: " + lateSurcharge + "\n"
+                + "2. Dịch vụ sử dụng: " + serviceTotalAmount + "\n"
+                + (serviceDetailsText != null && !serviceDetailsText.isBlank() ? serviceDetailsText : "")
+                + "--------------------------------------------------\n"
+                + "3. Tiền cọc đã thanh toán: -" + depositPaid + "\n"
+                + "4. THANH TOÁN CUỐI KHI TRẢ PHÒNG: " + finalPaidAmount + " (" + safeText(paymentMethodName, "Tại quầy") + ")\n"
+                + "--------------------------------------------------\n"
+                + "Hạng thành viên hiện tại: " + safeText(currentTierName, "Thành viên") + "\n"
+                + "==================================================\n\n"
                 + "Thay mặt toàn thể ban quản lý và nhân viên ITHotel, chúng tôi xin gửi lời cảm ơn chân thành nhất tới quý khách vì đã tin tưởng lựa chọn ITHotel làm điểm dừng chân.\n"
                 + "Kính chúc quý khách thượng lộ bình an, luôn dồi dào sức khỏe, tràn đầy năng lượng và gặt hái thật nhiều thành công trong công việc cũng như cuộc sống!\n\n"
                 + "Sự hài lòng của quý khách là niềm vinh hạnh của chúng tôi. Quý khách có thể dành ít phút chia sẻ đánh giá tại https://ithotel.ct296.id.vn/reviews để ITHotel ngày càng hoàn thiện hơn nhé.\n\n"
                 + "Rất mong sớm được đón tiếp quý khách trong những kỳ nghỉ tiếp theo!\n\n"
                 + "Trân trọng,\n"
                 + "Đội ngũ ITHotel";
-
         message.setText(content);
         sendSafe(message);
     }

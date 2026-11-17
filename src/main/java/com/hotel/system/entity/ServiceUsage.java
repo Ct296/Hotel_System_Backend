@@ -33,7 +33,6 @@ public class ServiceUsage {
     private RentalDetail rentalDetail;
 
     @ManyToOne
-    @JsonIgnore
     @JoinColumn(name = "SERVICE_ID", nullable = false)
     private Service service;
 }

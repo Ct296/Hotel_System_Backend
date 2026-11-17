@@ -28,4 +28,12 @@ public class BookingConfirmRequest {
     private RentalType rentalType;
 
     private String note;
+
+    private List<Boolean> isForSelfList;
+
+    private List<String> guestFullNames;
+
+    private List<String> guestPhones;
+
+    private List<String> guestPids;
 }

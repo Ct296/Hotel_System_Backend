@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -21,6 +21,7 @@ public class CustomerBookingService {
     private final RoomRepository roomRepository;
     private final RentalRepository rentalRepository;
     private final RentalDetailRepository rentalDetailRepository;
+    private final RentalGuestRepository rentalGuestRepository;
     private final RentalOperationService rentalOperationService;
     private final BillingService billingService;
     private final EmailService emailService;
@@ -32,7 +33,7 @@ public class CustomerBookingService {
 
     @Transactional
     public Rental processBooking(BookingConfirmRequest request, Customer customer) {
-        // KIỂM TRA PHẠT 1: Tài khoản có đang bị cấm đặt phòng không?
+        // KIỂM TRA PHẠT 1: Tài khoản có đang bị khóa đặt phòng không
         AccountStatus latestStatus = accountStatusRepository.findTopByAccountIdOrderByStartTimeDesc(customer.getId()).orElse(null);
         if (latestStatus != null && (latestStatus.getName() == AccountState.LOCKED || latestStatus.getName() == AccountState.BOOKING_BLOCKED)) {
             if (latestStatus.getEndTime() == null || latestStatus.getEndTime().isAfter(LocalDateTime.now())) {
@@ -40,7 +41,7 @@ public class CustomerBookingService {
                 String timeStr = latestStatus.getEndTime() == null ? "Vĩnh viễn" : latestStatus.getEndTime().format(formatter);
                 String reason = latestStatus.getReason() != null ? latestStatus.getReason() : "Vi phạm chính sách hệ thống.";
                 
-                throw new IllegalStateException("Tính năng đặt phòng đang bị khóa!|Lý do: " + reason + "|Hết hạn vào: " + timeStr + "|Vui lòng liên hệ Hotline 0901 000 001 để được hỗ trợ.");
+                throw new IllegalStateException("Tính năng đặt phòng đang bị khóa!|Lý do: " + reason + "|Mở khóa vào: " + timeStr + "|Vui lòng liên hệ Hotline 0901 000 001 để được hỗ trợ.");
             }
         }
 
@@ -49,29 +50,84 @@ public class CustomerBookingService {
                 .filter(r -> r.getStatus() == RentalStatus.PENDING)
                 .count();
         if (pendingCount >= 3) {
-            throw new IllegalStateException("Giới hạn chống đầu cơ phòng!|Bạn đang có " + pendingCount + " đơn chờ thanh toán.|Vui lòng thanh toán hoặc hủy các đơn cũ trước khi tạo mới.|Cần hỗ trợ? Gọi Hotline 0901 000 001.");
+            throw new IllegalStateException("Giới hạn chờ thanh toán!|Bạn đang có " + pendingCount + " đơn chờ thanh toán.|Vui lòng thanh toán hoặc hủy bớt trước khi đặt mới.|Cần hỗ trợ gọi Hotline 0901 000 001.");
         }
 
-        List<Room> selectedRooms = roomRepository.findAllById(request.getRoomId());
-        if (selectedRooms.isEmpty() || selectedRooms.size() != request.getRoomId().size()) {
+        List<String> requestedRoomIds = request.getRoomId();
+        Map<String, Room> roomMap = new HashMap<>();
+        for (Room r : roomRepository.findAllById(requestedRoomIds)) {
+            roomMap.put(r.getId(), r);
+        }
+        if (roomMap.size() != requestedRoomIds.size()) {
             throw new IllegalArgumentException("Danh sách phòng không hợp lệ.");
         }
+
+        // Giữ đúng thứ tự phòng theo request.getRoomId()
+        List<Room> selectedRooms = requestedRoomIds.stream().map(roomMap::get).toList();
 
         LocalDateTime checkIn = request.getCheckIn();
         LocalDateTime checkOut = request.getCheckOut();
 
+        // KIỂM TRA LOGIC ĐẶT CHO BẢN THÂN / ĐẶT HỘ TỪNG PHÒNG
+        Users bookerUser = customer.getUser();
+        String bookerFullName = AppUtils.buildFullName(bookerUser, "Khách đặt phòng");
+        String bookerPid = bookerUser != null && bookerUser.getPid() != null ? bookerUser.getPid().trim() : "";
+        String bookerPhone = bookerUser != null && bookerUser.getPhoneNumber() != null ? bookerUser.getPhoneNumber().trim() : "";
+
+        int selfRoomCount = 0;
+        Set<String> usedPidsInOrder = new HashSet<>();
+
         for (int i = 0; i < selectedRooms.size(); i++) {
             Room room = selectedRooms.get(i);
+
             if (rentalOperationService.hasBlockingConflict(room.getId(), checkIn, checkOut.plusMinutes(30), null)) {
-                throw new IllegalStateException("Phòng " + room.getName() + " đã được đặt trong khung giờ này.");
+                throw new IllegalStateException("Phòng " + room.getName() + " đã có lịch đặt trong khung giờ này.");
             }
 
             int adults = request.getAdultCounts().get(i);
             int children = request.getChildrenCounts().get(i);
             int maxAdults = room.getRoomType().getAdultMax() != null ? room.getRoomType().getAdultMax() : 0;
             int maxChildren = room.getRoomType().getChildrenMax() != null ? room.getRoomType().getChildrenMax() : 0;
+
             if (adults < 1 || adults > maxAdults || children < 0 || children > maxChildren) {
                 throw new IllegalArgumentException("Số lượng khách không hợp lệ cho phòng " + room.getName());
+            }
+
+            // Mặc định: nếu không truyền isForSelfList thì phòng đầu tiên (i == 0) là cho bản thân, các phòng sau là đặt hộ
+            boolean isForSelf = (request.getIsForSelfList() != null && i < request.getIsForSelfList().size())
+                    ? Boolean.TRUE.equals(request.getIsForSelfList().get(i))
+                    : (i == 0);
+
+            if (isForSelf) {
+                selfRoomCount++;
+                if (selfRoomCount > 1) {
+                    throw new IllegalArgumentException("Bạn chỉ có thể đăng ký bản thân lưu trú tại tối đa 1 phòng. Các phòng còn lại vui lòng chọn 'Đặt cho người đi cùng / Đặt hộ'.");
+                }
+                if (!bookerPid.isEmpty() && !bookerPid.startsWith("CHUA_CAP_NHAT_")) {
+                    usedPidsInOrder.add(bookerPid);
+                }
+            } else {
+                String gName = (request.getGuestFullNames() != null && i < request.getGuestFullNames().size())
+                        ? AppUtils.safeTrim(request.getGuestFullNames().get(i)) : "";
+                String gPhone = (request.getGuestPhones() != null && i < request.getGuestPhones().size())
+                        ? AppUtils.safeTrim(request.getGuestPhones().get(i)) : "";
+                String gPid = (request.getGuestPids() != null && i < request.getGuestPids().size())
+                        ? AppUtils.safeTrim(request.getGuestPids().get(i)) : "";
+
+                if (gName.isEmpty()) {
+                    throw new IllegalArgumentException("Vui lòng nhập Họ tên người nhận phòng cho Phòng " + room.getName() + ".");
+                }
+                if (gPhone.isEmpty() || !gPhone.matches("^\\d{9,11}$")) {
+                    throw new IllegalArgumentException("Số điện thoại người nhận Phòng " + room.getName() + " phải từ 9 - 11 chữ số.");
+                }
+                if (!gPid.isEmpty()) {
+                    if (gPid.length() < 9 || gPid.length() > 20) {
+                        throw new IllegalArgumentException("CCCD/Hộ chiếu người nhận Phòng " + room.getName() + " phải từ 9 - 20 ký tự.");
+                    }
+                    if (!usedPidsInOrder.add(gPid)) {
+                        throw new IllegalArgumentException("Số CCCD/Hộ chiếu '" + gPid + "' bị trùng lặp giữa các phòng trong cùng đơn đặt!");
+                    }
+                }
             }
         }
 
@@ -103,10 +159,40 @@ public class CustomerBookingService {
             detail.setStatus(RentalDetailStatus.PENDING);
             detail.setRoom(room);
             detail.setRental(rental);
-            rentalDetailRepository.save(detail);
+
+            // Tạo bản ghi RentalGuest đại diện cho phòng này
+            boolean isForSelf = (request.getIsForSelfList() != null && i < request.getIsForSelfList().size())
+                    ? Boolean.TRUE.equals(request.getIsForSelfList().get(i))
+                    : (i == 0);
+
+            RentalGuest representativeGuest = new RentalGuest();
+            representativeGuest.setId(AppUtils.generateId("RGS", 10));
+            representativeGuest.setIsAdult(true);
+            representativeGuest.setIsRepresentative(true);
+            representativeGuest.setRentalDetail(detail);
+
+            if (isForSelf) {
+                representativeGuest.setFullName(bookerFullName);
+                representativeGuest.setPid(bookerPid.isEmpty() ? null : bookerPid);
+                representativeGuest.setPhoneNumber(bookerPhone.isEmpty() ? null : bookerPhone);
+            } else {
+                String gName = AppUtils.safeTrim(request.getGuestFullNames().get(i));
+                String gPhone = AppUtils.safeTrim(request.getGuestPhones().get(i));
+                String gPid = (request.getGuestPids() != null && i < request.getGuestPids().size())
+                        ? AppUtils.safeTrim(request.getGuestPids().get(i)) : "";
+
+                representativeGuest.setFullName(gName);
+                representativeGuest.setPhoneNumber(gPhone);
+                representativeGuest.setPid(gPid.isEmpty() ? null : gPid);
+            }
+
+            // CHỈ CẦN ADD VÀO LIST CỦA DETAIL, CASCADE SẼ TỰ LƯU (BỎ DÒNG rentalGuestRepository.save)
+            detail.getRentalGuests().add(representativeGuest);
+            detail = rentalDetailRepository.save(detail);
             rental.getRentalDetails().add(detail);
         }
-        // Gửi mail thông báo vừa tạo đơn (nhắc thanh toán cọc trong 15p)
+
+        // Gửi mail thông báo đã tạo đơn (nhắc thanh toán cọc trong 15p)
         if (customer.getUser() != null && customer.getUser().getEmail() != null) {
             String roomNames = selectedRooms.stream().map(Room::getName).collect(java.util.stream.Collectors.joining(", "));
             String checkInStr = checkIn.format(DateTimeFormatter.ofPattern("HH:mm - dd/MM/yyyy"));
@@ -134,7 +220,7 @@ public class CustomerBookingService {
         }
         
         if (!Boolean.TRUE.equals(rental.getIsBooking())) {
-            throw new IllegalArgumentException("Chức năng chỉ dành cho booking đặt trước.");
+            throw new IllegalArgumentException("Chỉ hỗ trợ hủy cho booking đặt trước.");
         }
         
         if (rental.getStatus() != RentalStatus.PENDING && rental.getStatus() != RentalStatus.CONFIRMED) {
@@ -146,7 +232,7 @@ public class CustomerBookingService {
             boolean hasCheckedInOrProcessed = rental.getRentalDetails().stream()
                     .anyMatch(d -> d.getStatus() != null && d.getStatus() != RentalDetailStatus.PENDING);
             if (hasCheckedInOrProcessed) {
-                throw new IllegalArgumentException("Bạn đã nhận phòng, không thể hủy booking. Vui lòng liên hệ quầy lễ tân nếu muốn trả phòng sớm!");
+                throw new IllegalArgumentException("Bạn đã nhận phòng, không thể hủy booking. Vui lòng liên hệ lễ tân nếu muốn trả phòng sớm!");
             }
         }
 
@@ -184,11 +270,12 @@ public class CustomerBookingService {
             status.setName(AccountState.BOOKING_BLOCKED);
             status.setStartTime(LocalDateTime.now());
             status.setEndTime(LocalDateTime.now().plusDays(1)); // Khóa 1 ngày
-            status.setReason("Hủy đơn hoặc để quá hạn cọc từ 3 lần trở lên trong vòng 24 giờ.");
+            status.setReason("Hủy đơn hàng loạt 3 lần trở lên trong vòng 24 giờ.");
             
             Account account = accountRepository.findById(customerId).orElseThrow();
             status.setAccount(account);
             accountStatusRepository.save(status);
+
             if (account.getUser() != null && account.getUser().getEmail() != null) {
                 String unlockStr = status.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm - dd/MM/yyyy"));
                 emailService.sendSpamCancelPenaltyEmail(
@@ -199,5 +286,4 @@ public class CustomerBookingService {
             }
         }
     }
-
 }

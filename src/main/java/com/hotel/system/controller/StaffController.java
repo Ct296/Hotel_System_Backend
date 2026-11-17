@@ -49,6 +49,7 @@ public class StaffController {
     private final CustomerRepository customerRepository;
     private final AccountRepository accountRepository;
     private final AccountStatusRepository accountStatusRepository;
+    private final RentalGuestRepository rentalGuestRepository;
 
     public StaffController(BillingService billingService,
                            RoomTimelineService roomTimelineService,
@@ -66,7 +67,8 @@ public class StaffController {
                            UsersRepository usersRepository,
                            CustomerRepository customerRepository,
                            AccountRepository accountRepository,
-                           AccountStatusRepository accountStatusRepository) {
+                           AccountStatusRepository accountStatusRepository,
+                           RentalGuestRepository rentalGuestRepository) {
         this.billingService = billingService;
         this.roomTimelineService = roomTimelineService;
         this.customerTierService = customerTierService;
@@ -84,6 +86,7 @@ public class StaffController {
         this.customerRepository = customerRepository;
         this.accountRepository = accountRepository;
         this.accountStatusRepository = accountStatusRepository;
+        this.rentalGuestRepository = rentalGuestRepository;
     }
 
     private Users getLoggedInStaff() {
@@ -196,18 +199,9 @@ public class StaffController {
                 .sorted(Comparator.comparing(Rental::getRentDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
 
-        // Trả về Map thay vì Entity nguyên bản để có thể nhét thêm trường depositAmount
         List<Map<String, Object>> pendingBookings = rentals.stream()
                 .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()) && rental.getStatus() == RentalStatus.PENDING)
-                .map(rental -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", rental.getId());
-                    map.put("customer", rental.getCustomer());
-                    map.put("rentalDetails", rental.getRentalDetails());
-                    map.put("status", rental.getStatus());
-                    map.put("depositAmount", billingService.calculateDepositAmount(rental));
-                    return map;
-                })
+                .map(this::buildBookingMap)
                 .toList();
 
         List<Map<String, Object>> todayArrivals = rentals.stream()
@@ -215,21 +209,31 @@ public class StaffController {
                 .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
                 .filter(rental -> !rental.getRentalDetails().isEmpty() && rental.getRentalDetails().get(0).getCheckinDate() != null)
                 .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate().toLocalDate().isEqual(LocalDate.now()))
-                .map(rental -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", rental.getId());
-                    map.put("customer", rental.getCustomer());
-                    map.put("rentalDetails", rental.getRentalDetails());
-                    map.put("status", rental.getStatus());
-                    map.put("depositAmount", billingService.calculateDepositAmount(rental));
-                    return map;
-                })
+                .map(this::buildBookingMap)
+                .toList();
+
+        // MỚI: Toàn bộ lượt đặt đã xác nhận (CONFIRMED) chờ nhận phòng (kể cả qua 0h sáng mai hoặc các ngày tới)
+        List<Map<String, Object>> allConfirmedBookings = rentals.stream()
+                .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()) && rental.getStatus() == RentalStatus.CONFIRMED)
+                .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
+                .map(this::buildBookingMap)
                 .toList();
 
         return ResponseEntity.ok(Map.of(
                 "pendingBookings", pendingBookings,
-                "todayArrivals", todayArrivals
+                "todayArrivals", todayArrivals,
+                "allConfirmedBookings", allConfirmedBookings
         ));
+    }
+
+    private Map<String, Object> buildBookingMap(Rental rental) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", rental.getId());
+        map.put("customer", rental.getCustomer());
+        map.put("rentalDetails", rental.getRentalDetails());
+        map.put("status", rental.getStatus());
+        map.put("depositAmount", billingService.calculateDepositAmount(rental));
+        return map;
     }
 
     @GetMapping("/rentals/active")
@@ -486,6 +490,22 @@ public class StaffController {
                 detail.setUnitPrice(basePrice);
                 detail.setStatus(RentalDetailStatus.PENDING); 
                 rentalDetailRepository.save(detail);
+                detail = rentalDetailRepository.save(detail);
+
+                // Tự động gán khách hàng Walk-in làm người đại diện ở phòng đầu tiên (i == 0)
+                if (i == 0 && customer != null && customer.getUser() != null) {
+                    Users u = customer.getUser();
+                    RentalGuest repGuest = new RentalGuest();
+                    repGuest.setId(AppUtils.generateId("RGS", 10));
+                    repGuest.setFullName(AppUtils.buildFullName(u, "Khách Walk-in"));
+                    repGuest.setPid(u.getPid());
+                    repGuest.setPhoneNumber(u.getPhoneNumber());
+                    repGuest.setIsAdult(true);
+                    repGuest.setIsRepresentative(true);
+                    repGuest.setRentalDetail(detail);
+                    detail.getRentalGuests().add(repGuest);
+                }
+                rentalDetailRepository.save(detail);
             }
             return ResponseEntity.ok(Map.of("message", "Tạo đơn thành công! Đơn đang ở danh sách 'Chờ cọc'."));
         } catch (Exception e) {
@@ -581,7 +601,8 @@ public class StaffController {
 
     @PostMapping("/rentals/{rentalId}/check-in")
     @Transactional
-    public ResponseEntity<?> checkIn(@PathVariable String rentalId) {
+    public ResponseEntity<?> checkIn(@PathVariable String rentalId,
+                                     @RequestBody(required = false) com.hotel.system.dto.staff.CheckInRoomGuestsRequest guestRequest) {
         if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
         Rental rental = rentalRepository.findById(rentalId).orElse(null);
@@ -592,6 +613,91 @@ public class StaffController {
         for (RentalDetail detail : rental.getRentalDetails()) {
             if (detail.getRoom() == null || detail.getRoom().getStatus() != RoomStatus.AVAILABLE) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + (detail.getRoom() != null ? detail.getRoom().getName() : "") + " hiện chưa trống."));
+            }
+        }
+
+        // Nếu lễ tân gửi danh sách khách lưu trú từng phòng lên lúc Check-in
+        if (guestRequest != null && guestRequest.getRoomGuests() != null && !guestRequest.getRoomGuests().isEmpty()) {
+            Map<String, List<com.hotel.system.dto.staff.CheckInRoomGuestsRequest.GuestItem>> guestGroupMap = new HashMap<>();
+            for (var group : guestRequest.getRoomGuests()) {
+                if (group.getRentalDetailId() != null) {
+                    guestGroupMap.put(group.getRentalDetailId(), group.getGuests() != null ? group.getGuests() : List.of());
+                }
+            }
+
+            Set<String> allPidsAcrossRooms = new HashSet<>();
+
+            for (RentalDetail detail : rental.getRentalDetails()) {
+                String roomName = detail.getRoom() != null ? detail.getRoom().getName() : detail.getId();
+                List<com.hotel.system.dto.staff.CheckInRoomGuestsRequest.GuestItem> guests = guestGroupMap.get(detail.getId());
+
+                if (guests == null || guests.isEmpty()) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Vui lòng khai báo ít nhất 1 khách lưu trú cho Phòng " + roomName + "."));
+                }
+
+                int maxAdults = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getAdultMax() != null)
+                        ? detail.getRoom().getRoomType().getAdultMax() : 10;
+                int maxChildren = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getChildrenMax() != null)
+                        ? detail.getRoom().getRoomType().getChildrenMax() : 10;
+
+                int adultCount = 0;
+                int childrenCount = 0;
+
+                for (int idx = 0; idx < guests.size(); idx++) {
+                    var g = guests.get(idx);
+                    String fullName = AppUtils.safeTrim(g.getFullName());
+                    String pid = AppUtils.safeTrim(g.getPid());
+                    boolean isAdult = g.getIsAdult() == null || g.getIsAdult();
+
+                    if (fullName.isEmpty()) {
+                        return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + ": Khách thứ " + (idx + 1) + " chưa nhập Họ tên."));
+                    }
+
+                    if (isAdult) {
+                        adultCount++;
+                        if (pid.isEmpty() || pid.length() < 9 || pid.length() > 20) {
+                            return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + ": Người lớn (" + fullName + ") bắt buộc phải nhập số CCCD/Hộ chiếu hợp lệ (9-20 ký tự)."));
+                        }
+                    } else {
+                        childrenCount++;
+                    }
+
+                    if (!pid.isEmpty()) {
+                        if (!allPidsAcrossRooms.add(pid)) {
+                            return ResponseEntity.badRequest().body(Map.of("error", "Số CCCD/Hộ chiếu '" + pid + "' (" + fullName + ") bị trùng lặp! Mỗi khách chỉ được đăng ký ở 1 phòng."));
+                        }
+                    }
+                }
+
+                if (adultCount < 1) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " phải có ít nhất 1 người lớn lưu trú."));
+                }
+                if (adultCount > maxAdults) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " vượt quá số người lớn tối đa (" + maxAdults + " người lớn)."));
+                }
+                if (childrenCount > maxChildren) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " vượt quá số trẻ em tối đa (" + maxChildren + " trẻ em)."));
+                }
+
+                // Cập nhật lại số lượng người lớn / trẻ em thực tế và danh sách khách của phòng
+                detail.setAdultCount(adultCount);
+                detail.setChildrenCount(childrenCount);
+                detail.getRentalGuests().clear();
+
+                for (int idx = 0; idx < guests.size(); idx++) {
+                    var g = guests.get(idx);
+                    RentalGuest entity = new RentalGuest();
+                    entity.setId(AppUtils.generateId("RGS", 10));
+                    entity.setFullName(AppUtils.safeTrim(g.getFullName()));
+                    String pid = AppUtils.safeTrim(g.getPid());
+                    String phone = AppUtils.safeTrim(g.getPhoneNumber());
+                    entity.setPid(pid.isEmpty() ? null : pid);
+                    entity.setPhoneNumber(phone.isEmpty() ? null : phone);
+                    entity.setIsAdult(g.getIsAdult() == null || g.getIsAdult());
+                    entity.setIsRepresentative(idx == 0 || Boolean.TRUE.equals(g.getIsRepresentative()));
+                    entity.setRentalDetail(detail);
+                    detail.getRentalGuests().add(entity);
+                }
             }
         }
 
@@ -618,7 +724,7 @@ public class StaffController {
             );
         }
 
-        return ResponseEntity.ok(Map.of("message", "Check-in thành công cho tất cả các phòng."));
+        return ResponseEntity.ok(Map.of("message", "Check-in và khai báo khách lưu trú thành công!"));
     }
 
     @PostMapping("/rentals/{rentalId}/services")
@@ -715,13 +821,38 @@ public class StaffController {
             rentalDetailRepository.save(detail);
         }
 
-        // Gửi mail cảm ơn & chúc sức khỏe sau khi hoàn tất Check-out
+        // Gửi mail cảm ơn & hóa đơn tất toán chi tiết sau khi hoàn tất Check-out
         if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
             Users u = rental.getCustomer().getUser();
             String roomNames = rental.getRentalDetails().stream()
                     .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
                     .collect(java.util.stream.Collectors.joining(", "));
             BillingSummary summary = billingService.buildBillingSummary(rental);
+            double baseRoomOnly = Math.max(0.0, summary.roomAmount() - summary.earlyCheckinSurcharge() - summary.lateCheckoutSurcharge());
+
+            // Lấy danh sách dịch vụ đã dùng của tất cả các phòng trong đơn
+            Set<String> detailIds = rental.getRentalDetails().stream().map(RentalDetail::getId).collect(java.util.stream.Collectors.toSet());
+            List<ServiceUsage> usages = serviceUsageRepository.findAllByOrderByTimeDesc().stream()
+                    .filter(su -> su.getRentalDetail() != null && detailIds.contains(su.getRentalDetail().getId()))
+                    .toList();
+
+            StringBuilder svcText = new StringBuilder();
+            for (ServiceUsage su : usages) {
+                String sName = su.getService() != null ? su.getService().getName() : "Dịch vụ";
+                int count = su.getCount() != null ? su.getCount() : 0;
+                double price = su.getUnitPrice() != null ? su.getUnitPrice() : 0.0;
+                svcText.append("   + ").append(sName)
+                       .append(" (SL: ").append(count).append(" x ").append(AppUtils.formatMoney(price)).append("): ")
+                       .append(AppUtils.formatMoney(count * price)).append("\n");
+            }
+
+            // Lấy phương thức thanh toán cuối vừa thu
+            String paymentMethodStr = paymentRepository.findByBillRentalIdOrderByDateDesc(rentalId).stream()
+                    .filter(p -> p.getBill() != null && p.getBill().getType() != BillType.DEPOSIT)
+                    .findFirst()
+                    .map(p -> p.getMethod() != null ? p.getMethod().getDisplayName() : "Tại quầy")
+                    .orElse("Tại quầy");
+
             TierHistory currentTier = customerTierService.findTierHistoryEffectiveAt(rental.getCustomer().getId(), LocalDateTime.now());
             String tierName = (currentTier != null && currentTier.getTierCustomer() != null)
                     ? currentTier.getTierCustomer().getName() : "Thành viên";
@@ -731,10 +862,14 @@ public class StaffController {
                     AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
                     rental.getId(),
                     roomNames,
-                    AppUtils.formatMoney(summary.roomAmount()),
+                    AppUtils.formatMoney(baseRoomOnly),
+                    AppUtils.formatMoney(summary.earlyCheckinSurcharge()),
+                    AppUtils.formatMoney(summary.lateCheckoutSurcharge()),
+                    svcText.toString(),
                     AppUtils.formatMoney(summary.serviceAmount()),
                     AppUtils.formatMoney(summary.depositPaid()),
                     AppUtils.formatMoney(summary.finalAmount()),
+                    paymentMethodStr,
                     tierName
             );
         }
@@ -790,5 +925,99 @@ public class StaffController {
         }
 
         return ResponseEntity.ok(customerOpt.get());
+    }
+    
+    @PutMapping("/rental-details/{detailId}/guests")
+    @Transactional
+    public ResponseEntity<?> updateRoomGuests(@PathVariable String detailId,
+                                              @RequestBody List<com.hotel.system.dto.staff.CheckInRoomGuestsRequest.GuestItem> guests) {
+        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        RentalDetail detail = rentalDetailRepository.findById(detailId).orElse(null);
+        if (detail == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy thông tin phòng thuê."));
+        }
+
+        String roomName = detail.getRoom() != null ? detail.getRoom().getName() : detail.getId();
+        if (guests == null || guests.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " phải có ít nhất 1 khách lưu trú."));
+        }
+
+        int maxAdults = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getAdultMax() != null)
+                ? detail.getRoom().getRoomType().getAdultMax() : 10;
+        int maxChildren = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getChildrenMax() != null)
+                ? detail.getRoom().getRoomType().getChildrenMax() : 10;
+
+        // Lấy danh sách CCCD của các phòng KHÁC trong cùng đơn để chống trùng
+        Set<String> existingPidsInOtherRooms = new HashSet<>();
+        if (detail.getRental() != null && detail.getRental().getRentalDetails() != null) {
+            for (RentalDetail other : detail.getRental().getRentalDetails()) {
+                if (!other.getId().equals(detail.getId()) && other.getRentalGuests() != null) {
+                    for (RentalGuest rg : other.getRentalGuests()) {
+                        if (rg.getPid() != null && !rg.getPid().isBlank()) {
+                            existingPidsInOtherRooms.add(rg.getPid().trim());
+                        }
+                    }
+                }
+            }
+        }
+
+        int adultCount = 0;
+        int childrenCount = 0;
+        Set<String> pidsInThisRoom = new HashSet<>();
+
+        for (int idx = 0; idx < guests.size(); idx++) {
+            var g = guests.get(idx);
+            String fullName = AppUtils.safeTrim(g.getFullName());
+            String pid = AppUtils.safeTrim(g.getPid());
+            boolean isAdult = g.getIsAdult() == null || g.getIsAdult();
+
+            if (fullName.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Khách thứ " + (idx + 1) + " chưa nhập Họ tên."));
+            }
+            if (isAdult) {
+                adultCount++;
+                if (pid.isEmpty() || pid.length() < 9 || pid.length() > 20) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Người lớn (" + fullName + ") bắt buộc nhập số CCCD/Hộ chiếu (9-20 ký tự)."));
+                }
+            } else {
+                childrenCount++;
+            }
+
+            if (!pid.isEmpty()) {
+                if (!pidsInThisRoom.add(pid) || existingPidsInOtherRooms.contains(pid)) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Số CCCD/Hộ chiếu '" + pid + "' bị trùng lặp trong đơn!"));
+                }
+            }
+        }
+
+        if (adultCount < 1) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Phải có ít nhất 1 người lớn trong phòng."));
+        }
+        if (adultCount > maxAdults || childrenCount > maxChildren) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Vượt quá sức chứa tối đa của phòng (" + maxAdults + " NL, " + maxChildren + " TE)."));
+        }
+
+        detail.setAdultCount(adultCount);
+        detail.setChildrenCount(childrenCount);
+        detail.getRentalGuests().clear();
+
+        for (int idx = 0; idx < guests.size(); idx++) {
+            var g = guests.get(idx);
+            RentalGuest entity = new RentalGuest();
+            entity.setId(AppUtils.generateId("RGS", 10));
+            entity.setFullName(AppUtils.safeTrim(g.getFullName()));
+            String pid = AppUtils.safeTrim(g.getPid());
+            String phone = AppUtils.safeTrim(g.getPhoneNumber());
+            entity.setPid(pid.isEmpty() ? null : pid);
+            entity.setPhoneNumber(phone.isEmpty() ? null : phone);
+            entity.setIsAdult(g.getIsAdult() == null || g.getIsAdult());
+            entity.setIsRepresentative(idx == 0 || Boolean.TRUE.equals(g.getIsRepresentative()));
+            entity.setRentalDetail(detail);
+            detail.getRentalGuests().add(entity);
+        }
+
+        rentalDetailRepository.save(detail);
+        return ResponseEntity.ok(Map.of("message", "Đã cập nhật danh sách khách lưu trú Phòng " + roomName + "."));
     }
 }

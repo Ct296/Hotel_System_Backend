@@ -57,4 +57,7 @@ public class RentalDetail {
 
     @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Incident> incidents = new ArrayList<>();
+
+    @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RentalGuest> rentalGuests = new ArrayList<>();
 }
