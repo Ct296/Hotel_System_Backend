@@ -33,6 +33,9 @@ public class Bill {
     @Column(name = "BILL_LateCheckoutSurcharge")
     private Double lateCheckoutSurcharge;
 
+    @Column(name = "BILL_Note", length = 255)
+    private String note;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "BILL_Type", nullable = false)
     private BillType type;

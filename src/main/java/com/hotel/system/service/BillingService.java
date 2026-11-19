@@ -2,11 +2,13 @@ package com.hotel.system.service;
 
 import com.hotel.system.dto.billing.BillingSummary;
 import com.hotel.system.entity.AppliedPeriod;
+import com.hotel.system.entity.Incident;
 import com.hotel.system.entity.Rental;
 import com.hotel.system.entity.RentalDetail;
 import com.hotel.system.entity.Room;
 import com.hotel.system.entity.RoomType;
 import com.hotel.system.entity.enums.BillType;
+import com.hotel.system.entity.enums.IncidentStatus;
 import com.hotel.system.entity.enums.RentalDetailStatus;
 import com.hotel.system.entity.enums.RentalType;
 import com.hotel.system.repository.AppliedPeriodRepository;
@@ -46,17 +48,15 @@ public class BillingService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        boolean isCurrentlyStaying = rental.getRentalDetails().stream()
-                .anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN
-                        || d.getStatus() == RentalDetailStatus.OVERDUE
-                        || d.getStatus() == RentalDetailStatus.CHECKED_OUT);
 
         LocalDateTime earliestCheckin = rental.getRentalDetails().stream()
+                .filter(d -> d.getStatus() != RentalDetailStatus.CANCELLED)
                 .map(RentalDetail::getCheckinDate).filter(d -> d != null)
                 .min(LocalDateTime::compareTo).orElse(now);
 
         int actualStayHours = resolveActualStayHours(rental);
         int maxPlannedStayHours = rental.getRentalDetails().stream()
+                .filter(d -> d.getStatus() != RentalDetailStatus.CANCELLED)
                 .mapToInt(d -> normalizeStayLength(d.getLengthOfStay()))
                 .max().orElse(MINIMUM_WALK_IN_HOURS);
 
@@ -65,6 +65,10 @@ public class BillingService {
         double totalLateCheckoutSurcharge = 0.0;
 
         for (RentalDetail detail : rental.getRentalDetails()) {
+            if (detail.getStatus() == RentalDetailStatus.CANCELLED) {
+                continue;
+            }
+
             RentalType type = detail.getRentalType() != null ? detail.getRentalType() : RentalType.HOURLY;
             double unitPrice = detail.getUnitPrice() != null
                     ? detail.getUnitPrice()
@@ -72,11 +76,19 @@ public class BillingService {
 
             LocalDateTime ci = detail.getCheckinDate() != null ? detail.getCheckinDate() : earliestCheckin;
             LocalDateTime co;
-            if (isCurrentlyStaying) {
-                // Nếu khách đã nhận phòng (kể cả vừa vào vài phút hoặc checkinDate nhỡ ở tương lai gần): tính tới thời điểm hiện tại
+
+            if (detail.getStatus() == RentalDetailStatus.MOVED) {
+                // Chặng phòng cũ đã chuyển đi: chốt cứng theo lengthOfStay đã cập nhật lúc đổi phòng
+                if (detail.getLengthOfStay() == null || detail.getLengthOfStay() <= 0) {
+                    continue; // Mới vào chưa tính tiền chặng cũ (0đ)
+                }
+                co = ci.plusHours(detail.getLengthOfStay());
+            } else if (detail.getStatus() == RentalDetailStatus.CHECKED_IN
+                    || detail.getStatus() == RentalDetailStatus.OVERDUE) {
+                // Phòng đang ở: tính tới thời điểm hiện tại
                 co = now.isAfter(ci) ? now : ci.plusMinutes(1);
             } else {
-                // Đơn đặt trước chưa nhận phòng: tạm tính theo thời lượng đăng ký
+                // PENDING hoặc CHECKED_OUT: tính theo lengthOfStay của chi tiết đó
                 co = ci.plusHours(normalizeStayLength(detail.getLengthOfStay()));
             }
 
@@ -87,11 +99,18 @@ public class BillingService {
         }
 
         double completionRatio = maxPlannedStayHours <= 0 ? 1.0 : (double) actualStayHours / maxPlannedStayHours;
-        BillType billType = actualStayHours < maxPlannedStayHours ? BillType.EARLY_CHECKOUT : BillType.FINAL;
-
         double serviceAmount = calculateServiceAmount(rental);
         double depositPaid = calculateDepositPaid(rental.getId());
-        double finalAmount = Math.max(0.0, totalRoomAmount + serviceAmount - depositPaid);
+        double refundPaid = calculateRefundPaid(rental.getId());
+        double incidentPenalty = calculateIncidentPenalty(rental);
+        double incidentCompensation = calculateIncidentCompensation(rental);
+
+        // Số tiền ròng cần tất toán (có thể âm nếu cần hoàn tiền cho khách)
+        double netPayable = (totalRoomAmount + serviceAmount + incidentPenalty - incidentCompensation)
+                - (depositPaid - refundPaid);
+
+        BillType billType = netPayable < 0 ? BillType.REFUND : BillType.FINAL;
+        double finalAmount = Math.max(0.0, netPayable);
 
         return new BillingSummary(
                 totalRoomAmount,
@@ -107,11 +126,58 @@ public class BillingService {
         );
     }
 
+    /**
+     * Tính số tiền ròng cần tất toán (có dấu):
+     * > 0 : Khách cần đóng thêm
+     * == 0: Hòa tiền (đóng đơn 0đ)
+     * < 0 : Khách sạn cần hoàn lại cho khách (|netPayable|)
+     */
+    public double calculateNetPayable(Rental rental) {
+        if (rental == null) return 0.0;
+        BillingSummary summary = buildBillingSummary(rental);
+        double incidentPenalty = calculateIncidentPenalty(rental);
+        double incidentCompensation = calculateIncidentCompensation(rental);
+        double refundPaid = calculateRefundPaid(rental.getId());
+        return (summary.roomAmount() + summary.serviceAmount() + incidentPenalty - incidentCompensation)
+                - (summary.depositPaid() - refundPaid);
+    }
+
+    /**
+     * Tổng tiền phạt sự cố lỗi do KHÁCH HÀNG (chỉ tính phiếu RESOLVED) -> Cộng (+) vào hóa đơn
+     */
+    public double calculateIncidentPenalty(Rental rental) {
+        if (rental == null || rental.getRentalDetails() == null) return 0.0;
+        return rental.getRentalDetails().stream()
+                .filter(d -> d.getIncidents() != null)
+                .flatMap(d -> d.getIncidents().stream())
+                .filter(i -> i.getStatus() == IncidentStatus.RESOLVED
+                        && "CUSTOMER".equalsIgnoreCase(i.getResponsible())
+                        && i.getMoney() != null && i.getMoney() > 0)
+                .mapToDouble(Incident::getMoney)
+                .sum();
+    }
+
+    /**
+     * Tổng tiền bồi thường / giảm trừ sự cố lỗi do KHÁCH SẠN -> Trừ (-) vào hóa đơn
+     */
+    public double calculateIncidentCompensation(Rental rental) {
+        if (rental == null || rental.getRentalDetails() == null) return 0.0;
+        return rental.getRentalDetails().stream()
+                .filter(d -> d.getIncidents() != null)
+                .flatMap(d -> d.getIncidents().stream())
+                .filter(i -> i.getStatus() == IncidentStatus.RESOLVED
+                        && "HOTEL".equalsIgnoreCase(i.getResponsible())
+                        && i.getMoney() != null && i.getMoney() > 0)
+                .mapToDouble(Incident::getMoney)
+                .sum();
+    }
+
     public double calculateDepositAmount(Rental rental) {
         if (rental == null || rental.getRentalDetails() == null) return 0.0;
 
         double totalDeposit = 0.0;
         for (RentalDetail detail : rental.getRentalDetails()) {
+            if (detail.getStatus() == RentalDetailStatus.CANCELLED) continue;
             RentalType type = detail.getRentalType() != null ? detail.getRentalType() : RentalType.HOURLY;
             int stayLength = normalizeStayLength(detail.getLengthOfStay());
             double unitPrice = detail.getUnitPrice() != null
@@ -136,6 +202,13 @@ public class BillingService {
                 .sum();
     }
 
+    public double calculateRefundPaid(String rentalId) {
+        return billRepository.findByRentalIdOrderByCreateDateDesc(rentalId).stream()
+                .filter(item -> item.getType() == BillType.REFUND)
+                .mapToDouble(item -> item.getTotalAmount() == null ? 0.0 : item.getTotalAmount())
+                .sum();
+    }
+
     public boolean hasPaymentForBillType(String rentalId, BillType billType) {
         return paymentRepository.findByBillRentalIdOrderByDateDesc(rentalId).stream()
                 .anyMatch(payment -> payment.getBill() != null && payment.getBill().getType() == billType);
@@ -143,12 +216,12 @@ public class BillingService {
 
     public boolean hasSettlementBill(String rentalId) {
         return billRepository.existsByRentalIdAndType(rentalId, BillType.FINAL)
-                || billRepository.existsByRentalIdAndType(rentalId, BillType.EARLY_CHECKOUT);
+                || billRepository.existsByRentalIdAndType(rentalId, BillType.REFUND);
     }
 
     public boolean hasSettlementPayment(String rentalId) {
         return hasPaymentForBillType(rentalId, BillType.FINAL)
-                || hasPaymentForBillType(rentalId, BillType.EARLY_CHECKOUT);
+                || hasPaymentForBillType(rentalId, BillType.REFUND);
     }
 
     public double resolveRoomUnitPrice(Room room, LocalDateTime effectiveMoment, RentalType rentalType) {
@@ -216,6 +289,7 @@ public class BillingService {
                         || d.getStatus() == RentalDetailStatus.CHECKED_OUT);
 
         LocalDateTime earliestCheckin = rental.getRentalDetails().stream()
+                .filter(d -> d.getStatus() != RentalDetailStatus.CANCELLED)
                 .map(RentalDetail::getCheckinDate).filter(d -> d != null)
                 .min(LocalDateTime::compareTo).orElse(null);
 
@@ -223,11 +297,11 @@ public class BillingService {
 
         LocalDateTime now = LocalDateTime.now();
         if (now.isBefore(earliestCheckin)) {
-            // Nếu khách đang ở mà giờ checkin trên đơn vô tình lớn hơn giờ hiện tại -> tính tối thiểu 1 giờ
             if (isCurrentlyStaying) {
                 return MINIMUM_WALK_IN_HOURS;
             }
             return rental.getRentalDetails().stream()
+                    .filter(d -> d.getStatus() != RentalDetailStatus.CANCELLED)
                     .mapToInt(d -> normalizeStayLength(d.getLengthOfStay()))
                     .max().orElse(MINIMUM_WALK_IN_HOURS);
         }
@@ -236,12 +310,6 @@ public class BillingService {
         return calculateHourlyBillableHours(totalMinutes);
     }
 
-    /**
-     * Tính số giờ lưu trú theo quy tắc ân hạn 15 phút:
-     * - Tối thiểu 1 giờ.
-     * - Phần phút lẻ <= 15 phút: làm tròn xuống.
-     * - Phần phút lẻ > 15 phút (từ phút 16 trở đi): làm tròn lên +1 giờ.
-     */
     private int calculateHourlyBillableHours(long stayMinutes) {
         if (stayMinutes <= 60) {
             return MINIMUM_WALK_IN_HOURS;
@@ -256,7 +324,6 @@ public class BillingService {
         return (stayLength == null || stayLength < MINIMUM_WALK_IN_HOURS) ? MINIMUM_WALK_IN_HOURS : stayLength;
     }
 
-    // Trả về mảng: [0] = Tổng tiền phòng (đã gồm phụ thu), [1] = Tiền phụ thu nhận sớm, [2] = Tiền phụ thu trả muộn
     private double[] calculateRoomSubTotalBreakdown(double roomUnitPrice, LocalDateTime checkIn, LocalDateTime checkOut, RentalType rentalType) {
         if (checkIn == null || checkOut == null) return new double[]{0.0, 0.0, 0.0};
 
@@ -275,14 +342,13 @@ public class BillingService {
             double lateCoSurcharge = 0.0;
 
             if (calendarDaysDiff <= 0) {
-                // Khách nhận và trả phòng ngay trong cùng 1 ngày dương lịch: tính tối thiểu 1 đêm chuẩn, không phạt trả muộn
                 baseNights = 1.0;
             } else {
                 baseNights = calendarDaysDiff;
                 int coMinutes = checkOut.getHour() * 60 + checkOut.getMinute();
-                if (coMinutes > 1080) lateCoSurcharge = 1.0;      // Sau 18:00 -> +100%
-                else if (coMinutes > 900) lateCoSurcharge = 0.5;  // Sau 15:00 đến 18:00 -> +50%
-                else if (coMinutes > 720) lateCoSurcharge = 0.3;  // Sau 12:00 đến 15:00 -> +30%
+                if (coMinutes > 1080) lateCoSurcharge = 1.0;
+                else if (coMinutes > 900) lateCoSurcharge = 0.5;
+                else if (coMinutes > 720) lateCoSurcharge = 0.3;
             }
 
             double totalMultiplier = baseNights + earlyCiSurcharge + lateCoSurcharge;
@@ -293,7 +359,6 @@ public class BillingService {
             return new double[]{totalRoom, earlySurchargeMoney, lateSurchargeMoney};
         }
 
-        // Hình thức HOURLY: Ân hạn 15 phút, không phụ thu khung giờ
         long stayMinutes = Math.max(1, ChronoUnit.MINUTES.between(checkIn, checkOut));
         int finalHours = calculateHourlyBillableHours(stayMinutes);
         return new double[]{price * finalHours, 0.0, 0.0};

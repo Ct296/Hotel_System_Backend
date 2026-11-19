@@ -33,4 +33,7 @@ public class Payment {
     @OneToOne(optional = false)
     @JoinColumn(name = "BILL_ID", nullable = false, unique = true)
     private Bill bill;
+
+    @Column(name = "PAYMENT_Note", length = 255)
+    private String note;
 }

@@ -58,23 +58,24 @@ public class RoomTimelineService {
     private RoomTimelineRowView buildRoomTimelineRow(Room room, List<Rental> rentals, LocalDateTime timelineStart, LocalDateTime timelineEnd) {
         List<RoomTimelineSegmentView> segments = new ArrayList<>();
         if (room == null) return new RoomTimelineRowView(null, "N/A", "N/A", false, false, segments);
-        
-        List<Rental> roomBlockingRentals = rentals == null ? List.of() : rentals.stream()
-                .filter(rental -> rental != null && rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty()
-                                   && rental.getRentalDetails().get(0).getRoom() != null
-                                   && room.getId() != null && room.getId().equals(rental.getRentalDetails().get(0).getRoom().getId()))
-                .filter(rental -> rental.getRentalDetails().get(0).getStatus() != null && BLOCKING_BOOKING_STATUSES.contains(rental.getRentalDetails().get(0).getStatus()))
-                .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate() != null)
-                .filter(rental -> rentalOperationService.calculateRentalEndWithBuffer(rental) != null)
-                .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate().isBefore(timelineEnd) && rentalOperationService.calculateRentalEndWithBuffer(rental).isAfter(timelineStart))
-                .sorted(Comparator.comparing(r -> r.getRentalDetails().get(0).getCheckinDate()))
+
+        List<RentalDetail> roomBlockingDetails = rentals == null ? List.of() : rentals.stream()
+                .filter(rental -> rental != null && rental.getRentalDetails() != null)
+                .flatMap(rental -> rental.getRentalDetails().stream())
+                .filter(detail -> detail.getRoom() != null && room.getId() != null && room.getId().equals(detail.getRoom().getId()))
+                .filter(detail -> detail.getStatus() != null && BLOCKING_BOOKING_STATUSES.contains(detail.getStatus()))
+                .filter(detail -> detail.getCheckinDate() != null)
+                .filter(detail -> rentalOperationService.calculateDetailEndWithBuffer(detail) != null)
+                .filter(detail -> detail.getCheckinDate().isBefore(timelineEnd)
+                        && rentalOperationService.calculateDetailEndWithBuffer(detail).isAfter(timelineStart))
+                .sorted(Comparator.comparing(RentalDetail::getCheckinDate))
                 .toList();
 
         LocalDateTime cleaningUntil = resolveCleaningUntil(room);
         LocalDateTime cursor = timelineStart;
 
         while (cursor.isBefore(timelineEnd)) {
-            SegmentDescriptor descriptor = resolveSegmentDescriptor(room, roomBlockingRentals, cursor, timelineEnd, cleaningUntil);
+            SegmentDescriptor descriptor = resolveSegmentDescriptor(room, roomBlockingDetails, cursor, timelineEnd, cleaningUntil);
             LocalDateTime nextCursor = descriptor.end() == null || !descriptor.end().isAfter(cursor) ? cursor.plusMinutes(30) : descriptor.end();
             if (nextCursor.isAfter(timelineEnd)) nextCursor = timelineEnd;
             int colspan = (int) Math.max(1, ChronoUnit.MINUTES.between(cursor, nextCursor) / 30);
@@ -82,13 +83,13 @@ public class RoomTimelineService {
             cursor = nextCursor;
         }
 
-        LocalDateTime availableAt = resolveNextAvailableAt(room, roomBlockingRentals, cleaningUntil, timelineStart);
+        LocalDateTime availableAt = resolveNextAvailableAt(room, roomBlockingDetails, cleaningUntil, timelineStart);
         boolean availableNow = availableAt == null || !availableAt.isAfter(LocalDateTime.now());
         boolean maintenanceRoom = room.getStatus() == RoomStatus.MAINTENANCE;
 
         return new RoomTimelineRowView(
                 room,
-                resolveCurrentRoomStateLabel(room, roomBlockingRentals, cleaningUntil),
+                resolveCurrentRoomStateLabel(room, roomBlockingDetails, cleaningUntil),
                 formatAvailableAtLabel(availableAt, maintenanceRoom),
                 availableNow,
                 maintenanceRoom,
@@ -96,7 +97,7 @@ public class RoomTimelineService {
         );
     }
 
-    private SegmentDescriptor resolveSegmentDescriptor(Room room, List<Rental> roomBlockingRentals, LocalDateTime slotStart, LocalDateTime timelineEnd, LocalDateTime cleaningUntil) {
+    private SegmentDescriptor resolveSegmentDescriptor(Room room, List<RentalDetail> roomBlockingDetails, LocalDateTime slotStart, LocalDateTime timelineEnd, LocalDateTime cleaningUntil) {
         if (room != null && room.getStatus() == RoomStatus.MAINTENANCE) {
             return new SegmentDescriptor("Bảo trì", "Phòng đang bảo trì.", "maintenance", timelineEnd);
         }
@@ -104,35 +105,34 @@ public class RoomTimelineService {
             return new SegmentDescriptor("Dọn dẹp", "Phòng đang dọn dẹp.", "cleaning", cleaningUntil);
         }
 
-        Rental blockingRental = roomBlockingRentals.stream()
-                .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate() != null)
-                .filter(rental -> {
-                    LocalDateTime rentalEndWithBuffer = rentalOperationService.calculateRentalEndWithBuffer(rental);
-                    return rentalEndWithBuffer != null && !slotStart.isBefore(rental.getRentalDetails().get(0).getCheckinDate()) && slotStart.isBefore(rentalEndWithBuffer);
+        RentalDetail blockingDetail = roomBlockingDetails.stream()
+                .filter(detail -> {
+                    LocalDateTime endWithBuffer = rentalOperationService.calculateDetailEndWithBuffer(detail);
+                    return endWithBuffer != null && !slotStart.isBefore(detail.getCheckinDate()) && slotStart.isBefore(endWithBuffer);
                 }).findFirst().orElse(null);
 
-        if (blockingRental != null) {
-            LocalDateTime rentalCheckout = rentalOperationService.calculateExpectedCheckout(blockingRental);
-            LocalDateTime rentalEndWithBuffer = rentalOperationService.calculateRentalEndWithBuffer(blockingRental);
-            LocalDateTime segmentEnd = rentalEndWithBuffer == null ? slotStart.plusMinutes(30) : rentalEndWithBuffer;
+        if (blockingDetail != null) {
+            LocalDateTime checkout = rentalOperationService.calculateDetailEndWithoutBuffer(blockingDetail);
+            LocalDateTime endWithBuffer = rentalOperationService.calculateDetailEndWithBuffer(blockingDetail);
+            LocalDateTime segmentEnd = endWithBuffer == null ? slotStart.plusMinutes(30) : endWithBuffer;
 
-            if (rentalCheckout != null && !slotStart.isBefore(rentalCheckout) && slotStart.isBefore(segmentEnd)) {
-                return new SegmentDescriptor("Dọn dẹp", buildCleaningTooltip(blockingRental, segmentEnd), "cleaning", segmentEnd);
+            if (checkout != null && !slotStart.isBefore(checkout) && slotStart.isBefore(segmentEnd)) {
+                return new SegmentDescriptor("Dọn dẹp", buildCleaningTooltip(blockingDetail.getRental(), segmentEnd), "cleaning", segmentEnd);
             }
             return new SegmentDescriptor(
-                    buildRentalTimelineLabel(blockingRental),
-                    buildRentalTimelineTooltip(blockingRental, rentalCheckout, rentalEndWithBuffer),
-                    mapTimelineCssClass(blockingRental.getRentalDetails().get(0).getStatus()),
-                    rentalCheckout == null ? segmentEnd : rentalCheckout
+                    buildDetailTimelineLabel(blockingDetail),
+                    buildDetailTimelineTooltip(blockingDetail, checkout, endWithBuffer),
+                    mapTimelineCssClass(blockingDetail.getStatus()),
+                    checkout == null ? segmentEnd : checkout
             );
         }
 
-        Rental nextRental = roomBlockingRentals.stream()
-                .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate() != null && rental.getRentalDetails().get(0).getCheckinDate().isAfter(slotStart))
+        RentalDetail nextDetail = roomBlockingDetails.stream()
+                .filter(detail -> detail.getCheckinDate().isAfter(slotStart))
                 .findFirst().orElse(null);
 
-        LocalDateTime availableUntil = nextRental != null ? nextRental.getRentalDetails().get(0).getCheckinDate() : timelineEnd;
-        return new SegmentDescriptor("Trống", nextRental != null ? "Trống đến " + formatTimelineDateTime(availableUntil) : "Phòng trống.", "available", availableUntil);
+        LocalDateTime availableUntil = nextDetail != null ? nextDetail.getCheckinDate() : timelineEnd;
+        return new SegmentDescriptor("Trống", nextDetail != null ? "Trống đến " + formatTimelineDateTime(availableUntil) : "Phòng trống.", "available", availableUntil);
     }
 
     private LocalDateTime resolveCleaningUntil(Room room) {
@@ -141,7 +141,7 @@ public class RoomTimelineService {
         return (latestCheckoutTime == null ? LocalDateTime.now() : latestCheckoutTime).plusMinutes(CLEANING_BUFFER_MINUTES);
     }
 
-    private LocalDateTime resolveNextAvailableAt(Room room, List<Rental> roomBlockingRentals, LocalDateTime cleaningUntil, LocalDateTime baseTime) {
+    private LocalDateTime resolveNextAvailableAt(Room room, List<RentalDetail> roomBlockingDetails, LocalDateTime cleaningUntil, LocalDateTime baseTime) {
         if (room == null || room.getStatus() == RoomStatus.MAINTENANCE) return null;
 
         LocalDateTime pointer = baseTime == null ? LocalDateTime.now() : baseTime;
@@ -153,9 +153,9 @@ public class RoomTimelineService {
         boolean advanced;
         do {
             advanced = false;
-            for (Rental rental : roomBlockingRentals) {
-                LocalDateTime start = rental.getRentalDetails().get(0).getCheckinDate();
-                LocalDateTime end = rentalOperationService.calculateRentalEndWithBuffer(rental);
+            for (RentalDetail detail : roomBlockingDetails) {
+                LocalDateTime start = detail.getCheckinDate();
+                LocalDateTime end = rentalOperationService.calculateDetailEndWithBuffer(detail);
                 if (start != null && end != null && !pointer.isBefore(start) && pointer.isBefore(end)) {
                     pointer = end;
                     advanced = true;
@@ -166,24 +166,23 @@ public class RoomTimelineService {
         return pointer;
     }
 
-    private String resolveCurrentRoomStateLabel(Room room, List<Rental> roomBlockingRentals, LocalDateTime cleaningUntil) {
+    private String resolveCurrentRoomStateLabel(Room room, List<RentalDetail> roomBlockingDetails, LocalDateTime cleaningUntil) {
         if (room == null) return "N/A";
         if (room.getStatus() == RoomStatus.MAINTENANCE) return "Đang bảo trì";
         if (room.getStatus() == RoomStatus.CLEANING && cleaningUntil != null && cleaningUntil.isAfter(LocalDateTime.now())) return "Đang dọn dẹp";
 
-        Rental activeRental = roomBlockingRentals.stream()
-                .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate() != null)
-                .filter(rental -> {
-                    LocalDateTime end = rentalOperationService.calculateRentalEndWithBuffer(rental);
-                    return end != null && !LocalDateTime.now().isBefore(rental.getRentalDetails().get(0).getCheckinDate()) && LocalDateTime.now().isBefore(end);
+        RentalDetail activeDetail = roomBlockingDetails.stream()
+                .filter(detail -> {
+                    LocalDateTime end = rentalOperationService.calculateDetailEndWithBuffer(detail);
+                    return end != null && !LocalDateTime.now().isBefore(detail.getCheckinDate()) && LocalDateTime.now().isBefore(end);
                 }).findFirst().orElse(null);
 
-        if (activeRental == null) return "Trống ngay";
+        if (activeDetail == null) return "Trống ngay";
 
-        LocalDateTime expectedCheckout = rentalOperationService.calculateExpectedCheckout(activeRental);
+        LocalDateTime expectedCheckout = rentalOperationService.calculateDetailEndWithoutBuffer(activeDetail);
         if (expectedCheckout != null && !LocalDateTime.now().isBefore(expectedCheckout)) return "Đang dọn dẹp";
 
-        return activeRental.getRentalDetails().get(0).getStatus() != null ? activeRental.getRentalDetails().get(0).getStatus().getDisplayName() : "Đang bận";
+        return activeDetail.getStatus() != null ? activeDetail.getStatus().getDisplayName() : "Đang bận";
     }
 
     private String formatAvailableAtLabel(LocalDateTime availableAt, boolean maintenanceRoom) {
@@ -193,26 +192,23 @@ public class RoomTimelineService {
         return formatTimelineDateTime(availableAt);
     }
 
-    private String buildRentalTimelineLabel(Rental rental) {
-        String roomState = rental != null && rental.getRentalDetails().get(0).getStatus() != null ? rental.getRentalDetails().get(0).getStatus().getDisplayName() : "Đang chiếm chỗ";
-        if (rental == null) return roomState;
-        String customerName = resolveCustomerName(rental);
-        return "N/A".equals(customerName) ? roomState + " - " + rental.getId() : roomState + " - " + customerName;
+    private String buildDetailTimelineLabel(RentalDetail detail) {
+        String roomState = detail != null && detail.getStatus() != null ? detail.getStatus().getDisplayName() : "Đang chiếm chỗ";
+        if (detail == null || detail.getRental() == null) return roomState;
+        String customerName = resolveCustomerName(detail.getRental());
+        return "N/A".equals(customerName) ? roomState + " - " + detail.getRental().getId() : roomState + " - " + customerName;
     }
 
-    private String buildRentalTimelineTooltip(Rental rental, LocalDateTime rentalCheckout, LocalDateTime rentalEndWithBuffer) {
-        if (rental == null) return "";
-        RentalDetail firstDetail = (rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty()) ? rental.getRentalDetails().get(0) : null;
-
+    private String buildDetailTimelineTooltip(RentalDetail detail, LocalDateTime checkout, LocalDateTime endWithBuffer) {
+        if (detail == null) return "";
+        Rental rental = detail.getRental();
         StringBuilder tooltip = new StringBuilder();
-        tooltip.append("Mã: ").append(rental.getId() == null ? "N/A" : rental.getId());
-        tooltip.append(" | Trạng thái: ").append(firstDetail.getStatus() != null ? firstDetail.getStatus().getDisplayName() : "N/A");
+        tooltip.append("Mã: ").append(rental == null || rental.getId() == null ? "N/A" : rental.getId());
+        tooltip.append(" | Trạng thái: ").append(detail.getStatus() != null ? detail.getStatus().getDisplayName() : "N/A");
         tooltip.append(" | Khách: ").append(resolveCustomerName(rental));
-
-        if (firstDetail != null) tooltip.append(" | Từ: ").append(formatTimelineDateTime(firstDetail.getCheckinDate()));
-        tooltip.append(" | Đến: ").append(formatTimelineDateTime(rentalCheckout));
-        if (rentalEndWithBuffer != null) tooltip.append(" | Chặn đến: ").append(formatTimelineDateTime(rentalEndWithBuffer));
-
+        tooltip.append(" | Từ: ").append(formatTimelineDateTime(detail.getCheckinDate()));
+        tooltip.append(" | Đến: ").append(formatTimelineDateTime(checkout));
+        if (endWithBuffer != null) tooltip.append(" | Chặn đến: ").append(formatTimelineDateTime(endWithBuffer));
         return tooltip.toString();
     }
 

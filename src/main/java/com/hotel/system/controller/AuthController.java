@@ -63,7 +63,7 @@ public class AuthController {
         
         if (loginAttemptService.isBlocked(trimmedEmail)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body(Map.of("error", "Tài khoản bị khóa tạm thời 15 phút do nhập sai quá 5 lần."));
+                    .body(Map.of("error", "Thông tin đăng nhập không chính xác quá 5 lần. Vui lòng thử lại sau 15 phút."));
         }
 
         Optional<Users> userOpt = usersRepository.findByEmail(trimmedEmail);

@@ -1,1082 +1,163 @@
 package com.hotel.system.controller;
 
-import java.time.LocalDateTime;
-import java.time.LocalDate;
-import java.util.*;
-import java.time.temporal.ChronoUnit;
-
-import com.hotel.system.dto.billing.BillingSummary;
-import com.hotel.system.dto.timeline.RoomTimelineRowView;
-import com.hotel.system.dto.timeline.TimelineSlotView;
-import com.hotel.system.entity.*;
-import com.hotel.system.entity.enums.*;
-import com.hotel.system.repository.*;
-import com.hotel.system.service.BillingService;
-import com.hotel.system.service.CustomerTierService;
-import com.hotel.system.service.EmailService;
-import com.hotel.system.service.RentalOperationService;
-import com.hotel.system.service.RoomTimelineService;
-import com.hotel.system.util.AppUtils;
+import com.hotel.system.dto.staff.CheckInRoomGuestsRequest;
+import com.hotel.system.dto.staff.WalkInRequest;
+import com.hotel.system.entity.Users;
+import com.hotel.system.entity.enums.Role;
+import com.hotel.system.repository.UsersRepository;
+import com.hotel.system.service.StaffBookingService;
+import com.hotel.system.service.StaffQueryService;
+import com.hotel.system.service.StaffStayService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 @RestController
 @RequestMapping("/api/staff")
+@RequiredArgsConstructor
 public class StaffController {
 
-    private static final long CLEANING_BUFFER_MINUTES = 30;
-    private static final int MINIMUM_WALK_IN_HOURS = 1;
-
-    private final RoomTimelineService roomTimelineService;
-    private final BillingService billingService;
-    private final CustomerTierService customerTierService;
-    private final RentalOperationService rentalOperationService;
-    private final EmailService emailService;
-    private final StaffRepository staffRepository;
-    private final RentalRepository rentalRepository;
-    private final RentalDetailRepository rentalDetailRepository;
-    private final RoomRepository roomRepository;
-    private final ServiceRepository serviceRepository;
-    private final ServiceUsageRepository serviceUsageRepository;
-    private final BillRepository billRepository;
-    private final PaymentRepository paymentRepository;
+    private final StaffQueryService staffQueryService;
+    private final StaffBookingService staffBookingService;
+    private final StaffStayService staffStayService;
     private final UsersRepository usersRepository;
-    private final CustomerRepository customerRepository;
-    private final AccountRepository accountRepository;
-    private final AccountStatusRepository accountStatusRepository;
-    private final RentalGuestRepository rentalGuestRepository;
-
-    public StaffController(BillingService billingService,
-                           RoomTimelineService roomTimelineService,
-                           CustomerTierService customerTierService,
-                           RentalOperationService rentalOperationService,
-                           EmailService emailService,
-                           StaffRepository staffRepository,
-                           RentalRepository rentalRepository,
-                           RentalDetailRepository rentalDetailRepository,
-                           RoomRepository roomRepository,
-                           ServiceRepository serviceRepository,
-                           ServiceUsageRepository serviceUsageRepository,
-                           BillRepository billRepository,
-                           PaymentRepository paymentRepository,
-                           UsersRepository usersRepository,
-                           CustomerRepository customerRepository,
-                           AccountRepository accountRepository,
-                           AccountStatusRepository accountStatusRepository,
-                           RentalGuestRepository rentalGuestRepository) {
-        this.billingService = billingService;
-        this.roomTimelineService = roomTimelineService;
-        this.customerTierService = customerTierService;
-        this.rentalOperationService = rentalOperationService;
-        this.emailService = emailService;
-        this.staffRepository = staffRepository;
-        this.rentalRepository = rentalRepository;
-        this.rentalDetailRepository = rentalDetailRepository;
-        this.roomRepository = roomRepository;
-        this.serviceRepository = serviceRepository;
-        this.serviceUsageRepository = serviceUsageRepository;
-        this.billRepository = billRepository;
-        this.paymentRepository = paymentRepository;
-        this.usersRepository = usersRepository;
-        this.customerRepository = customerRepository;
-        this.accountRepository = accountRepository;
-        this.accountStatusRepository = accountStatusRepository;
-        this.rentalGuestRepository = rentalGuestRepository;
-    }
 
     private Users getLoggedInStaff() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof UserDetails userDetails) {
             Optional<Users> userOpt = usersRepository.findByEmail(userDetails.getUsername());
-            if (userOpt.isPresent() && (userOpt.get().getRole() == Role.STAFF || userOpt.get().getRole() == Role.MANAGER || userOpt.get().getRole() == Role.ADMIN)) {
+            if (userOpt.isPresent() && (userOpt.get().getRole() == Role.STAFF
+                    || userOpt.get().getRole() == Role.MANAGER
+                    || userOpt.get().getRole() == Role.ADMIN)) {
                 return userOpt.get();
             }
         }
         return null;
     }
 
+    private ResponseEntity<?> executeAuthorized(Supplier<Object> action) {
+        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        try {
+            return ResponseEntity.ok(action.get());
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @GetMapping("/overview")
     public ResponseEntity<?> getOverview() {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        rentalOperationService.expirePendingBookingsWithoutDeposit();
-        rentalOperationService.markCheckedInRentalsAsOverdue();
-        rentalOperationService.autoReleaseCleaningRooms();
-
-        List<Rental> rentals = rentalRepository.findAll();
-        
-        long pendingCount = rentals.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getIsBooking()) && r.getStatus() == RentalStatus.PENDING).count();
-        
-        List<Rental> todayArrivalsList = rentals.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getIsBooking()) && r.getStatus() == RentalStatus.CONFIRMED)
-                .filter(r -> r.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
-                .filter(r -> !r.getRentalDetails().isEmpty() && r.getRentalDetails().get(0).getCheckinDate() != null)
-                .filter(r -> r.getRentalDetails().get(0).getCheckinDate().toLocalDate().isEqual(LocalDate.now()))
-                .sorted(Comparator.comparing(r -> r.getRentalDetails().get(0).getCheckinDate()))
-                .toList();
-
-        long checkedInCount = rentals.stream()
-                .filter(r -> r.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN || d.getStatus() == RentalDetailStatus.OVERDUE))
-                .count();
-
-        long cleaningCount = roomRepository.findByStatus(RoomStatus.CLEANING).size();
-        long availableCount = roomRepository.findByStatus(RoomStatus.AVAILABLE).size();
-        long maintenanceCount = roomRepository.findByStatus(RoomStatus.MAINTENANCE).size();
-        long totalRooms = roomRepository.count();
-        long busyCount = Math.max(0, totalRooms - availableCount - cleaningCount - maintenanceCount);
-
-        List<Room> allRooms = roomRepository.findAllByOrderByNameAsc();
-
-        return ResponseEntity.ok(Map.of(
-                "pendingBookingCount", pendingCount,
-                "todayArrivalsCount", todayArrivalsList.size(),
-                "checkedInCount", checkedInCount,
-                "checkedOutCount", cleaningCount,
-                "todayArrivalsList", todayArrivalsList, 
-                "roomStatusCounts", List.of(availableCount, busyCount, cleaningCount, maintenanceCount),
-                "rooms", allRooms
-        ));
+        return executeAuthorized(staffQueryService::getOverviewData);
     }
 
     @GetMapping("/timeline")
     public ResponseEntity<?> getTimeline(@RequestParam(name = "timelineOffsetHours", defaultValue = "0") Integer timelineOffsetHours) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        List<Rental> rentals = rentalRepository.findAll();
-        List<Room> allRooms = roomRepository.findAll().stream()
-                .sorted(Comparator.comparing(Room::getName, Comparator.nullsLast(String::compareToIgnoreCase)))
-                .toList();
-
-        int safeTimelineOffsetHours = normalizeTimelineOffsetHours(timelineOffsetHours);
-        LocalDateTime baseTimelineStart = floorToHalfHour(LocalDateTime.now());
-        LocalDateTime timelineStart = baseTimelineStart.plusHours(safeTimelineOffsetHours);
-        LocalDateTime timelineEnd = timelineStart.plusHours(24);
-
-        List<TimelineSlotView> roomTimelineSlots = roomTimelineService.buildRoomTimelineSlots(timelineStart, 48);
-        List<RoomTimelineRowView> roomTimelineRows = roomTimelineService.buildRoomTimelineRows(allRooms, rentals, timelineStart, timelineEnd);
-
-        return ResponseEntity.ok(Map.of(
-                "roomTimelineSlots", roomTimelineSlots,
-                "roomTimelineRows", roomTimelineRows,
-                "timelineStart", timelineStart,
-                "timelineEnd", timelineEnd,
-                "availableNowRoomCount", roomTimelineRows.stream().filter(RoomTimelineRowView::availableNow).count(),
-                "busyNowRoomCount", roomTimelineRows.stream().filter(row -> !row.availableNow() && !row.maintenanceRoom()).count(),
-                "maintenanceRoomCount", roomTimelineRows.stream().filter(RoomTimelineRowView::maintenanceRoom).count()
-        ));
+        return executeAuthorized(() -> staffQueryService.getTimelineData(timelineOffsetHours));
     }
 
     @GetMapping("/walk-in/rooms")
     public ResponseEntity<?> getWalkInRooms(@RequestParam(name = "walkInCheckin", required = false) String walkInCheckin,
                                             @RequestParam(name = "walkInLengthOfStay", defaultValue = "1") Integer walkInLengthOfStay) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        LocalDateTime baseTimelineStart = floorToHalfHour(LocalDateTime.now());
-        int safeWalkInLengthOfStay = walkInLengthOfStay == null || walkInLengthOfStay < MINIMUM_WALK_IN_HOURS ? MINIMUM_WALK_IN_HOURS : walkInLengthOfStay;
-        LocalDateTime parsedStart = parseDashboardDateTimeOrDefault(walkInCheckin, baseTimelineStart);
-        LocalDateTime walkInSearchStart = parsedStart.isBefore(baseTimelineStart) ? baseTimelineStart : parsedStart;
-        LocalDateTime walkInSearchEnd = walkInSearchStart.plusHours(safeWalkInLengthOfStay).plusMinutes(CLEANING_BUFFER_MINUTES);
-
-        List<Room> walkInRooms = roomRepository.findAll().stream()
-                .filter(room -> room.getStatus() == RoomStatus.AVAILABLE)
-                .filter(room -> !rentalOperationService.hasBlockingConflict(room.getId(), walkInSearchStart, walkInSearchEnd, null))
-                .toList();
-
-        return ResponseEntity.ok(Map.of("walkInRooms", walkInRooms));
+        return executeAuthorized(() -> staffQueryService.getWalkInRooms(walkInCheckin, walkInLengthOfStay));
     }
 
     @GetMapping("/bookings")
     public ResponseEntity<?> getBookings() {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        List<Rental> rentals = rentalRepository.findAll().stream()
-                .sorted(Comparator.comparing(Rental::getRentDate, Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList();
-
-        List<Map<String, Object>> pendingBookings = rentals.stream()
-                .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()) && rental.getStatus() == RentalStatus.PENDING)
-                .map(this::buildBookingMap)
-                .toList();
-
-        List<Map<String, Object>> todayArrivals = rentals.stream()
-                .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()) && rental.getStatus() == RentalStatus.CONFIRMED)
-                .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
-                .filter(rental -> !rental.getRentalDetails().isEmpty() && rental.getRentalDetails().get(0).getCheckinDate() != null)
-                .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate().toLocalDate().isEqual(LocalDate.now()))
-                .map(this::buildBookingMap)
-                .toList();
-
-        // MỚI: Toàn bộ lượt đặt đã xác nhận (CONFIRMED) chờ nhận phòng (kể cả qua 0h sáng mai hoặc các ngày tới)
-        List<Map<String, Object>> allConfirmedBookings = rentals.stream()
-                .filter(rental -> Boolean.TRUE.equals(rental.getIsBooking()) && rental.getStatus() == RentalStatus.CONFIRMED)
-                .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
-                .map(this::buildBookingMap)
-                .toList();
-
-        return ResponseEntity.ok(Map.of(
-                "pendingBookings", pendingBookings,
-                "todayArrivals", todayArrivals,
-                "allConfirmedBookings", allConfirmedBookings
-        ));
-    }
-
-    private Map<String, Object> buildBookingMap(Rental rental) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("id", rental.getId());
-        map.put("customer", rental.getCustomer());
-        map.put("rentalDetails", rental.getRentalDetails());
-        map.put("status", rental.getStatus());
-        map.put("depositAmount", billingService.calculateDepositAmount(rental));
-        return map;
+        return executeAuthorized(staffQueryService::getBookingsData);
     }
 
     @GetMapping("/rentals/active")
     public ResponseEntity<?> getActiveRentals() {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        List<Rental> rentals = rentalRepository.findAll().stream()
-                .sorted(Comparator.comparing(Rental::getRentDate, Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList();
-
-        List<Rental> checkedInRentals = rentals.stream()
-                .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN))
-                .toList();
-
-        List<Rental> overdueRentals = rentals.stream()
-                .filter(rental -> rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.OVERDUE))
-                .toList();
-
-        List<Service> activeServices = serviceRepository.findByStatusOrderByCreateDateDesc(ServiceStatus.ACTIVE);
-
-        Map<String, BillingSummary> billingSummaries = new HashMap<>();
-        for (Rental r : checkedInRentals) billingSummaries.put(r.getId(), billingService.buildBillingSummary(r));
-        for (Rental r : overdueRentals) billingSummaries.put(r.getId(), billingService.buildBillingSummary(r));
-
-        return ResponseEntity.ok(Map.of(
-                "checkedInRentals", checkedInRentals,
-                "overdueRentals", overdueRentals,
-                "activeServices", activeServices,
-                "billingSummaries", billingSummaries
-        ));
+        return executeAuthorized(staffQueryService::getActiveRentalsData);
     }
 
     @GetMapping("/rentals/cleaning")
     public ResponseEntity<?> getCleaningRooms() {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        List<Rental> completedRentals = rentalRepository.findAll().stream()
-                .filter(rental -> rental.getStatus() == RentalStatus.COMPLETED)
-                .sorted(Comparator.comparing(Rental::getRentDate, Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList();
-
-        List<Rental> checkedOutRentals = new ArrayList<>();
-        Set<String> processedRoomIds = new HashSet<>();
-
-        for (Rental rental : completedRentals) {
-            for (RentalDetail detail : rental.getRentalDetails()) {
-                Room room = detail.getRoom();
-                if (room != null && room.getStatus() == RoomStatus.CLEANING && !processedRoomIds.contains(room.getId())) {
-                    
-                    Rental clone = new Rental();
-                    clone.setId(rental.getId());
-                    clone.setCustomer(rental.getCustomer());
-                    clone.setRentalDetails(List.of(detail));
-                    
-                    checkedOutRentals.add(clone);
-                    processedRoomIds.add(room.getId());
-                }
-            }
-        }
-
-        return ResponseEntity.ok(Map.of("checkedOutRentals", checkedOutRentals));
+        return executeAuthorized(staffQueryService::getCleaningRoomsData);
     }
 
     @GetMapping("/history")
     public ResponseEntity<?> getHistory() {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        List<Map<String, Object>> billList = billRepository.findAllByOrderByCreateDateDesc().stream()
-                .map(b -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", b.getId());
-                    map.put("createDate", b.getCreateDate());
-                    map.put("type", b.getType());
-                    map.put("totalAmount", b.getTotalAmount());
-                    return map;
-                }).toList();
-
-        List<Map<String, Object>> paymentList = paymentRepository.findAllByOrderByDateDesc().stream()
-                .map(p -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", p.getId());
-                    map.put("date", p.getDate());
-                    map.put("transaction", p.getTransaction());
-                    map.put("method", p.getMethod());
-                    map.put("bill", p.getBill() != null ? Map.of("id", p.getBill().getId()) : null);
-                    return map;
-                }).toList();
-
-        List<Map<String, Object>> serviceUsageList = serviceUsageRepository.findAllByOrderByTimeDesc().stream()
-                .map(u -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", u.getId());
-                    map.put("time", u.getTime());
-                    map.put("count", u.getCount());
-                    map.put("unitPrice", u.getUnitPrice());
-                    map.put("service", u.getService() != null ? Map.of("name", u.getService().getName()) : null);
-                    map.put("rentalDetailId", u.getRentalDetail() != null ? u.getRentalDetail().getId() : null);
-                    return map;
-                }).toList();
-
-        return ResponseEntity.ok(Map.of(
-                "bills", billList,
-                "payments", paymentList,
-                "serviceUsages", serviceUsageList
-        ));
-    }
-
-    @PostMapping("/walk-in")
-    @Transactional
-    public ResponseEntity<?> createWalkInRental(@RequestBody com.hotel.system.dto.staff.WalkInRequest request) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        try {
-            List<String> roomIds = request.getRoomId();
-            List<Integer> adultCounts = request.getAdultCount();
-            List<Integer> childrenCounts = request.getChildrenCount();
-            
-            RentalType type = request.getRentalType() != null ? request.getRentalType() : RentalType.HOURLY;
-            Integer inputLength = request.getLengthOfStay(); // Nếu HOURLY là số giờ, nếu DAILY là số đêm
-            
-            if (roomIds == null || roomIds.isEmpty()) throw new RuntimeException("Vui lòng chọn ít nhất 1 phòng.");
-            if (inputLength == null || inputLength < 1) throw new RuntimeException("Số lượng giờ/đêm tối thiểu là 1.");
-
-            LocalDateTime checkIn = request.getCheckIn() != null ? request.getCheckIn() : LocalDateTime.now();
-            
-            if (checkIn.isBefore(LocalDateTime.now().minusMinutes(5))) {
-                throw new RuntimeException("Thời gian nhận phòng không được nằm trong quá khứ.");
-            }
-
-            LocalDateTime checkOut;
-            int lengthOfStay;
-            
-            if (type == RentalType.DAILY) {
-                // Thuê qua đêm: Mặc định checkout 12h trưa hôm sau (cộng thêm số đêm khách chọn)
-                checkOut = checkIn.toLocalDate().plusDays(inputLength).atTime(12, 0);
-                if (checkOut.isBefore(checkIn)) {
-                    checkOut = checkOut.plusDays(1); // Xử lý nếu lố 12h trưa
-                }
-                lengthOfStay = (int) Math.max(1, ChronoUnit.HOURS.between(checkIn, checkOut));
-            } else {
-                // Thuê giờ
-                lengthOfStay = inputLength;
-                checkOut = checkIn.plusHours(lengthOfStay);
-            }
-
-            // Kiểm tra xung đột cho tất cả các phòng
-            for (String rId : roomIds) {
-                if (rentalOperationService.hasBlockingConflict(rId, checkIn, checkOut.plusMinutes(30), null)) {
-                    throw new RuntimeException("Phòng đã bị đặt trong khung giờ này. Vui lòng tải lại trang.");
-                }
-            }
-            
-            String existingCustomerPid = request.getExistingCustomerPid();
-            Customer customer = null;
-
-            if (existingCustomerPid != null && !existingCustomerPid.trim().isEmpty()) {
-                Users user = usersRepository.findByPid(existingCustomerPid.trim())
-                        .orElseThrow(() -> new RuntimeException("Không tìm thấy khách hàng với CCCD này."));
-                customer = customerRepository.findByUser(user)
-                        .orElseThrow(() -> new RuntimeException("Hồ sơ này không phải là khách hàng."));
-            } else {
-                String pid = request.getPid() != null ? request.getPid().trim() : "";
-                if (pid.isEmpty()) throw new RuntimeException("Vui lòng nhập CCCD/Hộ chiếu.");
-
-                String rawEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : "";
-                String emailToSave = rawEmail.isEmpty() ? null : rawEmail;
-
-                Optional<Users> existingUserByPid = usersRepository.findByPid(pid);
-
-                if (existingUserByPid.isPresent()) {
-                    // Trường hợp khách đã từng lưu trú nhưng lễ tân nhập thẳng vào ô Khách mới thay vì bấm Tìm kiếm
-                    Users existingUser = existingUserByPid.get();
-                    if (existingUser.getRole() != Role.CUSTOMER) {
-                        throw new RuntimeException("Số CCCD này thuộc về nhân sự nội bộ, không thể tạo đơn khách hàng!");
-                    }
-                    // Cập nhật bổ sung SĐT hoặc Email nếu trước đó khách chưa có
-                    if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
-                        existingUser.setPhoneNumber(request.getPhoneNumber().trim());
-                    }
-                    if (emailToSave != null && existingUser.getEmail() == null) {
-                        if (usersRepository.findByEmail(emailToSave).isPresent()) {
-                            throw new RuntimeException("Email này đã được sử dụng bởi một người khác!");
-                        }
-                        existingUser.setEmail(emailToSave);
-                    }
-                    existingUser.setUpdateDate(LocalDateTime.now());
-                    existingUser = usersRepository.save(existingUser);
-
-                    final Users finalExistingUser = existingUser;
-                    customer = customerRepository.findByUser(existingUser).orElseGet(() -> {
-                        Customer newCus = new Customer();
-                        newCus.setUser(finalExistingUser);
-                        return customerRepository.save(newCus);
-                    });
-                } else {
-                    // Trường hợp khách mới hoàn toàn -> Chỉ tạo Users và Customer (KHÔNG tạo Account)
-                    if (emailToSave != null && usersRepository.findByEmail(emailToSave).isPresent()) {
-                        throw new RuntimeException("Email này đã được sử dụng bởi một tài khoản khác!");
-                    }
-
-                    Users newUser = new Users();
-                    newUser.setId(AppUtils.generateId("USR", 10));
-                    newUser.setLastName(request.getLastName() != null ? request.getLastName().trim() : "");
-                    newUser.setFirstName(request.getFirstName() != null ? request.getFirstName().trim() : "Khách");
-                    newUser.setEmail(emailToSave); // Có thể là null nếu khách không cung cấp
-                    newUser.setPid(pid);
-                    newUser.setPhoneNumber(request.getPhoneNumber() != null ? request.getPhoneNumber().trim() : "");
-                    newUser.setNationality(request.getNationality() != null && !request.getNationality().isBlank() ? request.getNationality().trim() : "Việt Nam");
-                    newUser.setSex(request.getSex() != null && !request.getSex().isBlank() ? Gender.valueOf(request.getSex().trim().toUpperCase()) : Gender.MALE);
-                    newUser.setDateOfBirth(request.getDateOfBirth() != null && !request.getDateOfBirth().isBlank() ? LocalDate.parse(request.getDateOfBirth()) : LocalDate.of(2000, 1, 1));
-                    newUser.setRole(Role.CUSTOMER);
-                    newUser.setAvatar("default_avatar_customer.jpg");
-                    newUser.setCreateDate(LocalDateTime.now());
-                    newUser.setUpdateDate(LocalDateTime.now());
-                    newUser = usersRepository.save(newUser);
-
-                    customer = new Customer();
-                    customer.setUser(newUser);
-                    customer = customerRepository.save(customer);
-
-                    // Đồng bộ khởi tạo hạng thẻ mặc định để khách tích lũy chi tiêu ngay từ lần đầu
-                    customerTierService.syncCustomerTierByBills(customer);
-                }
-            }
-
-            Rental rental = new Rental();
-            rental.setId(AppUtils.generateId("REN", 10));
-            rental.setRentDate(LocalDateTime.now());
-            rental.setIsBooking(true);
-            rental.setStatus(RentalStatus.PENDING); 
-            rental.setCustomer(customer);
-            rental = rentalRepository.save(rental);
-
-            for (int i = 0; i < roomIds.size(); i++) {
-                Room room = roomRepository.findById(roomIds.get(i)).orElseThrow();
-                RentalDetail detail = new RentalDetail();
-                detail.setId(AppUtils.generateId("RDT", 10));
-                detail.setRental(rental);
-                detail.setRoom(room);
-                detail.setCheckinDate(checkIn);
-                detail.setLengthOfStay(lengthOfStay);
-                detail.setRentalType(type); // Gán hình thức thuê
-                
-                double basePrice = 0.0;
-                if (type == RentalType.DAILY) {
-                    basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() : 
-                                (room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
-                } else {
-                    basePrice = room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
-                }
-                
-                detail.setAdultCount(adultCounts.get(i));
-                detail.setChildrenCount(childrenCounts.get(i));
-                detail.setUnitPrice(basePrice);
-                detail.setStatus(RentalDetailStatus.PENDING); 
-                rentalDetailRepository.save(detail);
-                detail = rentalDetailRepository.save(detail);
-
-                // Tự động gán khách hàng Walk-in làm người đại diện ở phòng đầu tiên (i == 0)
-                if (i == 0 && customer != null && customer.getUser() != null) {
-                    Users u = customer.getUser();
-                    RentalGuest repGuest = new RentalGuest();
-                    repGuest.setId(AppUtils.generateId("RGS", 10));
-                    repGuest.setFullName(AppUtils.buildFullName(u, "Khách Walk-in"));
-                    repGuest.setPid(u.getPid());
-                    repGuest.setPhoneNumber(u.getPhoneNumber());
-                    repGuest.setIsAdult(true);
-                    repGuest.setIsRepresentative(true);
-                    repGuest.setRentalDetail(detail);
-                    detail.getRentalGuests().add(repGuest);
-                }
-                rentalDetailRepository.save(detail);
-            }
-            return ResponseEntity.ok(Map.of("message", "Tạo đơn thành công! Đơn đang ở danh sách 'Chờ cọc'."));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi tạo đơn: " + e.getMessage()));
-        }
-    }
-
-    @PostMapping("/bookings/{rentalId}/pay-deposit")
-    @Transactional
-    public ResponseEntity<?> payDepositCash(@PathVariable String rentalId) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Rental rental = rentalRepository.findById(rentalId).orElse(null);
-        if (rental == null || rental.getStatus() != RentalStatus.PENDING) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Đơn không hợp lệ hoặc đã được xử lý."));
-        }
-
-        double totalDepositAmount = billingService.calculateDepositAmount(rental);
-
-        Bill depositBill = new Bill();
-        depositBill.setId(AppUtils.generateId("BIL", 10));
-        depositBill.setCreateDate(LocalDateTime.now());
-        depositBill.setTotalAmount(totalDepositAmount);
-        depositBill.setType(BillType.DEPOSIT);
-        depositBill.setRental(rental);
-        billRepository.save(depositBill);
-
-        Payment payment = new Payment();
-        payment.setId(AppUtils.generateId("PAY", 10));
-        payment.setMethod(PaymentMethod.CASH);
-        payment.setDate(LocalDateTime.now());
-        payment.setTransaction("CASH-DEP-" + rental.getId());
-        payment.setBill(depositBill);
-        paymentRepository.save(payment);
-
-        rental.setStatus(RentalStatus.CONFIRMED);
-        rentalRepository.save(rental);
-
-        // Gửi mail xác nhận đã đóng cọc tiền mặt tại quầy
-        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
-            Users u = rental.getCustomer().getUser();
-            String roomNames = rental.getRentalDetails().stream()
-                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
-                    .collect(java.util.stream.Collectors.joining(", "));
-            String checkInStr = (!rental.getRentalDetails().isEmpty() && rental.getRentalDetails().get(0).getCheckinDate() != null)
-                    ? rental.getRentalDetails().get(0).getCheckinDate().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
-                    : "N/A";
-            emailService.sendBookingConfirmedEmail(
-                    u.getEmail(),
-                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
-                    rental.getId(),
-                    roomNames,
-                    checkInStr,
-                    AppUtils.formatMoney(totalDepositAmount),
-                    "Tiền mặt tại quầy"
-            );
-        }
-
-        return ResponseEntity.ok(Map.of("message", "Đã thu tiền cọc (Tiền mặt) thành công. Khách đã có thể Check-in."));
-    }
-
-
-    @PostMapping("/bookings/{rentalId}/cancel")
-    @Transactional
-    public ResponseEntity<?> cancelBooking(@PathVariable String rentalId) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Rental rental = rentalRepository.findById(rentalId).orElse(null);
-        if (rental == null || !Boolean.TRUE.equals(rental.getIsBooking())) return ResponseEntity.badRequest().body(Map.of("error", "Không thể huỷ."));
-
-        rental.setStatus(RentalStatus.CANCELLED);
-        for(RentalDetail detail : rental.getRentalDetails()){
-            detail.setStatus(RentalDetailStatus.CANCELLED);
-        }
-        rentalRepository.save(rental);
-
-        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
-            Users u = rental.getCustomer().getUser();
-            String roomNames = rental.getRentalDetails().stream()
-                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
-                    .collect(java.util.stream.Collectors.joining(", "));
-            emailService.sendBookingCancelledEmail(
-                    u.getEmail(),
-                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
-                    rental.getId(),
-                    roomNames,
-                    "Đơn đặt phòng được hủy bởi nhân viên lễ tân theo yêu cầu."
-            );
-        }
-
-        return ResponseEntity.ok(Map.of("message", "Đã hủy booking thành công."));
-    }
-
-    @PostMapping("/rentals/{rentalId}/check-in")
-    @Transactional
-    public ResponseEntity<?> checkIn(@PathVariable String rentalId,
-                                     @RequestBody(required = false) com.hotel.system.dto.staff.CheckInRoomGuestsRequest guestRequest) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Rental rental = rentalRepository.findById(rentalId).orElse(null);
-        if (rental == null || rental.getStatus() != RentalStatus.CONFIRMED) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Chỉ được check-in booking đã xác nhận."));
-        }
-
-        for (RentalDetail detail : rental.getRentalDetails()) {
-            if (detail.getRoom() == null || detail.getRoom().getStatus() != RoomStatus.AVAILABLE) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + (detail.getRoom() != null ? detail.getRoom().getName() : "") + " hiện chưa trống."));
-            }
-        }
-
-        // Nếu lễ tân gửi danh sách khách lưu trú từng phòng lên lúc Check-in
-        if (guestRequest != null && guestRequest.getRoomGuests() != null && !guestRequest.getRoomGuests().isEmpty()) {
-            Map<String, List<com.hotel.system.dto.staff.CheckInRoomGuestsRequest.GuestItem>> guestGroupMap = new HashMap<>();
-            for (var group : guestRequest.getRoomGuests()) {
-                if (group.getRentalDetailId() != null) {
-                    guestGroupMap.put(group.getRentalDetailId(), group.getGuests() != null ? group.getGuests() : List.of());
-                }
-            }
-
-            Set<String> allPidsAcrossRooms = new HashSet<>();
-
-            for (RentalDetail detail : rental.getRentalDetails()) {
-                String roomName = detail.getRoom() != null ? detail.getRoom().getName() : detail.getId();
-                List<com.hotel.system.dto.staff.CheckInRoomGuestsRequest.GuestItem> guests = guestGroupMap.get(detail.getId());
-
-                if (guests == null || guests.isEmpty()) {
-                    return ResponseEntity.badRequest().body(Map.of("error", "Vui lòng khai báo ít nhất 1 khách lưu trú cho Phòng " + roomName + "."));
-                }
-
-                int maxAdults = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getAdultMax() != null)
-                        ? detail.getRoom().getRoomType().getAdultMax() : 10;
-                int maxChildren = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getChildrenMax() != null)
-                        ? detail.getRoom().getRoomType().getChildrenMax() : 10;
-
-                int adultCount = 0;
-                int childrenCount = 0;
-
-                for (int idx = 0; idx < guests.size(); idx++) {
-                    var g = guests.get(idx);
-                    String fullName = AppUtils.safeTrim(g.getFullName());
-                    String pid = AppUtils.safeTrim(g.getPid());
-                    boolean isAdult = g.getIsAdult() == null || g.getIsAdult();
-
-                    if (fullName.isEmpty()) {
-                        return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + ": Khách thứ " + (idx + 1) + " chưa nhập Họ tên."));
-                    }
-
-                    if (isAdult) {
-                        adultCount++;
-                        if (pid.isEmpty() || pid.length() < 9 || pid.length() > 20) {
-                            return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + ": Người lớn (" + fullName + ") bắt buộc phải nhập số CCCD/Hộ chiếu hợp lệ (9-20 ký tự)."));
-                        }
-                    } else {
-                        childrenCount++;
-                    }
-
-                    if (!pid.isEmpty()) {
-                        if (!allPidsAcrossRooms.add(pid)) {
-                            return ResponseEntity.badRequest().body(Map.of("error", "Số CCCD/Hộ chiếu '" + pid + "' (" + fullName + ") bị trùng lặp! Mỗi khách chỉ được đăng ký ở 1 phòng."));
-                        }
-                    }
-                }
-
-                if (adultCount < 1) {
-                    return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " phải có ít nhất 1 người lớn lưu trú."));
-                }
-                if (adultCount > maxAdults) {
-                    return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " vượt quá số người lớn tối đa (" + maxAdults + " người lớn)."));
-                }
-                if (childrenCount > maxChildren) {
-                    return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " vượt quá số trẻ em tối đa (" + maxChildren + " trẻ em)."));
-                }
-
-                // Cập nhật lại số lượng người lớn / trẻ em thực tế và danh sách khách của phòng
-                detail.setAdultCount(adultCount);
-                detail.setChildrenCount(childrenCount);
-                detail.getRentalGuests().clear();
-
-                for (int idx = 0; idx < guests.size(); idx++) {
-                    var g = guests.get(idx);
-                    RentalGuest entity = new RentalGuest();
-                    entity.setId(AppUtils.generateId("RGS", 10));
-                    entity.setFullName(AppUtils.safeTrim(g.getFullName()));
-                    String pid = AppUtils.safeTrim(g.getPid());
-                    String phone = AppUtils.safeTrim(g.getPhoneNumber());
-                    entity.setPid(pid.isEmpty() ? null : pid);
-                    entity.setPhoneNumber(phone.isEmpty() ? null : phone);
-                    entity.setIsAdult(g.getIsAdult() == null || g.getIsAdult());
-                    entity.setIsRepresentative(idx == 0 || Boolean.TRUE.equals(g.getIsRepresentative()));
-                    entity.setRentalDetail(detail);
-                    detail.getRentalGuests().add(entity);
-                }
-            }
-        }
-
-        LocalDateTime actualCheckinTime = LocalDateTime.now();
-        for (RentalDetail detail : rental.getRentalDetails()) {
-            LocalDateTime plannedCheckin = detail.getCheckinDate();
-            int plannedStayHours = (detail.getLengthOfStay() != null && detail.getLengthOfStay() > 0)
-                    ? detail.getLengthOfStay() : MINIMUM_WALK_IN_HOURS;
-
-            if (plannedCheckin != null) {
-                LocalDateTime plannedCheckout = plannedCheckin.plusHours(plannedStayHours);
-                if (actualCheckinTime.isBefore(plannedCheckin)) {
-                    long minutesUntilPlannedCheckout = ChronoUnit.MINUTES.between(actualCheckinTime, plannedCheckout);
-                    int adjustedHours = (int) Math.max(
-                            plannedStayHours,
-                            (minutesUntilPlannedCheckout + 59) / 60
-                    );
-                    detail.setLengthOfStay(adjustedHours);
-                }
-            }
-
-            detail.setCheckinDate(actualCheckinTime);
-            detail.setStatus(RentalDetailStatus.CHECKED_IN);
-            rentalDetailRepository.save(detail);
-        }
-
-        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
-            Users u = rental.getCustomer().getUser();
-            String roomNames = rental.getRentalDetails().stream()
-                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
-                    .collect(java.util.stream.Collectors.joining(", "));
-            LocalDateTime expectedOut = rentalOperationService.calculateExpectedCheckout(rental);
-            String outStr = expectedOut != null
-                    ? expectedOut.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
-                    : "Theo quy định";
-            emailService.sendCheckInWelcomeEmail(
-                    u.getEmail(),
-                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
-                    rental.getId(),
-                    roomNames,
-                    outStr
-            );
-        }
-
-        return ResponseEntity.ok(Map.of("message", "Check-in và khai báo khách lưu trú thành công!"));
-    }
-
-    @PostMapping("/rentals/{rentalId}/services")
-    @Transactional
-    public ResponseEntity<?> addServiceToRental(@PathVariable String rentalId, @RequestBody Map<String, Object> payload) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Rental rental = rentalRepository.findById(rentalId).orElse(null);
-        if (rental == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy Rental."));
-
-        boolean isActive = rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN || d.getStatus() == RentalDetailStatus.OVERDUE);
-        if (!isActive) return ResponseEntity.badRequest().body(Map.of("error", "Chỉ thêm dịch vụ cho khách đang ở."));
-
-        Service service = serviceRepository.findById(payload.get("serviceId").toString()).orElse(null);
-        if (service == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy dịch vụ."));
-
-        RentalDetail firstDetail = rental.getRentalDetails().get(0);
-
-        ServiceUsage usage = new ServiceUsage();
-        usage.setId(AppUtils.generateId("SVG", 10));
-        usage.setCount(Integer.valueOf(payload.get("quantity").toString()));
-        usage.setTime(LocalDateTime.now());
-        usage.setUnitPrice(service.getBasePrice());
-        usage.setRentalDetail(firstDetail);
-        usage.setService(service);
-        serviceUsageRepository.save(usage);
-
-        return ResponseEntity.ok(Map.of("message", "Thêm dịch vụ thành công."));
-    }
-
-    @PostMapping("/rentals/{rentalId}/final-payment")
-    @Transactional
-    public ResponseEntity<?> collectFinalPayment(@PathVariable String rentalId, @RequestBody Map<String, String> payload) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Rental rental = rentalRepository.findById(rentalId).orElse(null);
-        if (rental == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy Rental."));
-
-        boolean isActive = rental.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN || d.getStatus() == RentalDetailStatus.OVERDUE);
-        if (!isActive) return ResponseEntity.badRequest().body(Map.of("error", "Chỉ ghi nhận thanh toán cuối cho khách đang ở."));
-
-        PaymentMethod paymentMethod = PaymentMethod.valueOf(payload.get("paymentMethod"));
-        BillingSummary billingSummary = billingService.buildBillingSummary(rental);
-        
-        Bill finalBill = new Bill();
-        finalBill.setId(AppUtils.generateId("BIL", 10));
-        finalBill.setCreateDate(LocalDateTime.now());
-        finalBill.setTotalAmount(billingSummary.finalAmount());
-        finalBill.setType(billingSummary.billType());
-        finalBill.setActualStayHours(billingSummary.actualStayHours());
-        finalBill.setActualRoomAmount(billingSummary.roomAmount());
-        
-        // CHỖ FIX LỖI: Cập nhật 2 trường phụ thu mới thay cho dòng cũ bị gạch đỏ
-        finalBill.setEarlyCheckinSurcharge(billingSummary.earlyCheckinSurcharge());
-        finalBill.setLateCheckoutSurcharge(billingSummary.lateCheckoutSurcharge());
-        
-        finalBill.setRental(rental);
-        billRepository.save(finalBill);
-
-        Payment payment = new Payment();
-        payment.setId(AppUtils.generateId("PAY", 10));
-        payment.setMethod(paymentMethod);
-        payment.setDate(LocalDateTime.now());
-        payment.setTransaction(AppUtils.buildTransactionCode(paymentMethod, payload.get("transactionCode")));
-        payment.setBill(finalBill);
-        paymentRepository.save(payment);
-
-        customerTierService.syncCustomerTierByBills(rental.getCustomer());
-        return ResponseEntity.ok(Map.of("message", "Đã ghi nhận thanh toán cuối."));
-    }
-
-    @PostMapping("/rentals/{rentalId}/check-out")
-    @Transactional
-    public ResponseEntity<?> checkOut(@PathVariable String rentalId) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Rental rental = rentalRepository.findById(rentalId).orElse(null);
-        if (rental == null) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy Rental."));
-
-        if (!billingService.hasSettlementPayment(rentalId)) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Chưa thể check-out. Cần thanh toán cuối trước."));
-        }
-
-        rental.setStatus(RentalStatus.COMPLETED);
-        rentalRepository.save(rental);
-
-        for (RentalDetail detail : rental.getRentalDetails()) {
-            if (detail.getRoom() != null) {
-                Room room = detail.getRoom();
-                room.setStatus(RoomStatus.CLEANING);
-                roomRepository.save(room);
-            }
-            detail.setStatus(RentalDetailStatus.CHECKED_OUT);
-            rentalDetailRepository.save(detail);
-        }
-
-        // Gửi mail cảm ơn & hóa đơn tất toán chi tiết sau khi hoàn tất Check-out
-        if (rental.getCustomer() != null && rental.getCustomer().getUser() != null) {
-            Users u = rental.getCustomer().getUser();
-            String roomNames = rental.getRentalDetails().stream()
-                    .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
-                    .collect(java.util.stream.Collectors.joining(", "));
-            BillingSummary summary = billingService.buildBillingSummary(rental);
-            double baseRoomOnly = Math.max(0.0, summary.roomAmount() - summary.earlyCheckinSurcharge() - summary.lateCheckoutSurcharge());
-
-            // Lấy danh sách dịch vụ đã dùng của tất cả các phòng trong đơn
-            Set<String> detailIds = rental.getRentalDetails().stream().map(RentalDetail::getId).collect(java.util.stream.Collectors.toSet());
-            List<ServiceUsage> usages = serviceUsageRepository.findAllByOrderByTimeDesc().stream()
-                    .filter(su -> su.getRentalDetail() != null && detailIds.contains(su.getRentalDetail().getId()))
-                    .toList();
-
-            StringBuilder svcText = new StringBuilder();
-            for (ServiceUsage su : usages) {
-                String sName = su.getService() != null ? su.getService().getName() : "Dịch vụ";
-                int count = su.getCount() != null ? su.getCount() : 0;
-                double price = su.getUnitPrice() != null ? su.getUnitPrice() : 0.0;
-                svcText.append("   + ").append(sName)
-                       .append(" (SL: ").append(count).append(" x ").append(AppUtils.formatMoney(price)).append("): ")
-                       .append(AppUtils.formatMoney(count * price)).append("\n");
-            }
-
-            // Lấy phương thức thanh toán cuối vừa thu
-            String paymentMethodStr = paymentRepository.findByBillRentalIdOrderByDateDesc(rentalId).stream()
-                    .filter(p -> p.getBill() != null && p.getBill().getType() != BillType.DEPOSIT)
-                    .findFirst()
-                    .map(p -> p.getMethod() != null ? p.getMethod().getDisplayName() : "Tại quầy")
-                    .orElse("Tại quầy");
-
-            TierHistory currentTier = customerTierService.findTierHistoryEffectiveAt(rental.getCustomer().getId(), LocalDateTime.now());
-            String tierName = (currentTier != null && currentTier.getTierCustomer() != null)
-                    ? currentTier.getTierCustomer().getName() : "Thành viên";
-
-            emailService.sendCheckoutThankYouEmail(
-                    u.getEmail(),
-                    AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
-                    rental.getId(),
-                    roomNames,
-                    AppUtils.formatMoney(baseRoomOnly),
-                    AppUtils.formatMoney(summary.earlyCheckinSurcharge()),
-                    AppUtils.formatMoney(summary.lateCheckoutSurcharge()),
-                    svcText.toString(),
-                    AppUtils.formatMoney(summary.serviceAmount()),
-                    AppUtils.formatMoney(summary.depositPaid()),
-                    AppUtils.formatMoney(summary.finalAmount()),
-                    paymentMethodStr,
-                    tierName
-            );
-        }
-
-        return ResponseEntity.ok(Map.of("message", "Hoàn tất check-out. Các phòng chuyển sang trạng thái đang dọn dẹp."));
-    }
-
-    @PutMapping("/rooms/{roomId}/status/available")
-    @Transactional
-    public ResponseEntity<?> markRoomAvailable(@PathVariable String roomId) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Room room = roomRepository.findById(roomId).orElse(null);
-        if (room != null && room.getStatus() == RoomStatus.CLEANING) {
-            room.setStatus(RoomStatus.AVAILABLE);
-            roomRepository.save(room);
-            return ResponseEntity.ok(Map.of("message", "Đã mở lại phòng " + room.getName()));
-        }
-        return ResponseEntity.badRequest().body(Map.of("error", "Phòng không ở trạng thái cần dọn dẹp."));
-    }
-
-    private int normalizeTimelineOffsetHours(Integer timelineOffsetHours) {
-        if (timelineOffsetHours == null) return 0;
-        int remainder = timelineOffsetHours % 24;
-        return remainder == 0 ? timelineOffsetHours : timelineOffsetHours - remainder;
-    }
-
-    private LocalDateTime parseDashboardDateTimeOrDefault(String value, LocalDateTime defaultValue) {
-        try {
-            return (value == null || value.isBlank()) ? defaultValue : LocalDateTime.parse(value.trim());
-        } catch (Exception ex) { return defaultValue; }
-    }
-
-    private LocalDateTime floorToHalfHour(LocalDateTime value) {
-        if (value == null) return null;
-        int flooredMinute = value.getMinute() < 30 ? 0 : 30;
-        return value.withMinute(flooredMinute).withSecond(0).withNano(0);
+        return executeAuthorized(staffQueryService::getHistoryData);
     }
 
     @GetMapping("/customers/by-pid/{pid}")
     public ResponseEntity<?> getCustomerByPid(@PathVariable String pid) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-
-        Optional<Users> userOpt = usersRepository.findByPid(pid.trim());
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Không tìm thấy khách hàng."));
-        }
-
-        Users user = userOpt.get();
-        Optional<Customer> customerOpt = customerRepository.findByUser(user);
-        if (customerOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Tài khoản không thuộc về khách hàng."));
-        }
-
-        return ResponseEntity.ok(customerOpt.get());
+        return executeAuthorized(() -> staffQueryService.findCustomerByPid(pid));
     }
-    
-    @PutMapping("/rental-details/{detailId}/guests")
-    @Transactional
-    public ResponseEntity<?> updateRoomGuests(@PathVariable String detailId,
-                                              @RequestBody List<com.hotel.system.dto.staff.CheckInRoomGuestsRequest.GuestItem> guests) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
-        RentalDetail detail = rentalDetailRepository.findById(detailId).orElse(null);
-        if (detail == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy thông tin phòng thuê."));
-        }
+    @PostMapping("/walk-in")
+    public ResponseEntity<?> createWalkInRental(@RequestBody WalkInRequest request) {
+        return executeAuthorized(() -> Map.of("message", staffBookingService.createWalkInRental(request)));
+    }
 
-        String roomName = detail.getRoom() != null ? detail.getRoom().getName() : detail.getId();
-        if (guests == null || guests.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Phòng " + roomName + " phải có ít nhất 1 khách lưu trú."));
-        }
+    @PostMapping("/bookings/{rentalId}/pay-deposit")
+    public ResponseEntity<?> payDepositCash(@PathVariable String rentalId) {
+        return executeAuthorized(() -> Map.of("message", staffBookingService.payDepositCash(rentalId)));
+    }
 
-        int maxAdults = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getAdultMax() != null)
-                ? detail.getRoom().getRoomType().getAdultMax() : 10;
-        int maxChildren = (detail.getRoom() != null && detail.getRoom().getRoomType() != null && detail.getRoom().getRoomType().getChildrenMax() != null)
-                ? detail.getRoom().getRoomType().getChildrenMax() : 10;
+    @PostMapping("/bookings/{rentalId}/cancel")
+    public ResponseEntity<?> cancelBooking(@PathVariable String rentalId) {
+        return executeAuthorized(() -> Map.of("message", staffBookingService.cancelBooking(rentalId)));
+    }
 
-        // Lấy danh sách CCCD của các phòng KHÁC trong cùng đơn để chống trùng
-        Set<String> existingPidsInOtherRooms = new HashSet<>();
-        if (detail.getRental() != null && detail.getRental().getRentalDetails() != null) {
-            for (RentalDetail other : detail.getRental().getRentalDetails()) {
-                if (!other.getId().equals(detail.getId()) && other.getRentalGuests() != null) {
-                    for (RentalGuest rg : other.getRentalGuests()) {
-                        if (rg.getPid() != null && !rg.getPid().isBlank()) {
-                            existingPidsInOtherRooms.add(rg.getPid().trim());
-                        }
-                    }
-                }
-            }
-        }
+    @PostMapping("/bookings/{rentalId}/cancel-refund")
+    public ResponseEntity<?> cancelBookingWithRefund(@PathVariable String rentalId,
+                                                     @RequestBody(required = false) Map<String, String> payload) {
+        return executeAuthorized(() -> Map.of("message", staffBookingService.cancelBookingWithRefund(rentalId, payload)));
+    }
 
-        int adultCount = 0;
-        int childrenCount = 0;
-        Set<String> pidsInThisRoom = new HashSet<>();
+    @PostMapping("/rentals/{rentalId}/check-in")
+    public ResponseEntity<?> checkIn(@PathVariable String rentalId,
+                                     @RequestBody(required = false) CheckInRoomGuestsRequest guestRequest) {
+        return executeAuthorized(() -> Map.of("message", staffBookingService.checkIn(rentalId, guestRequest)));
+    }
 
-        for (int idx = 0; idx < guests.size(); idx++) {
-            var g = guests.get(idx);
-            String fullName = AppUtils.safeTrim(g.getFullName());
-            String pid = AppUtils.safeTrim(g.getPid());
-            boolean isAdult = g.getIsAdult() == null || g.getIsAdult();
-
-            if (fullName.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Khách thứ " + (idx + 1) + " chưa nhập Họ tên."));
-            }
-            if (isAdult) {
-                adultCount++;
-                if (pid.isEmpty() || pid.length() < 9 || pid.length() > 20) {
-                    return ResponseEntity.badRequest().body(Map.of("error", "Người lớn (" + fullName + ") bắt buộc nhập số CCCD/Hộ chiếu (9-20 ký tự)."));
-                }
-            } else {
-                childrenCount++;
-            }
-
-            if (!pid.isEmpty()) {
-                if (!pidsInThisRoom.add(pid) || existingPidsInOtherRooms.contains(pid)) {
-                    return ResponseEntity.badRequest().body(Map.of("error", "Số CCCD/Hộ chiếu '" + pid + "' bị trùng lặp trong đơn!"));
-                }
-            }
-        }
-
-        if (adultCount < 1) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Phải có ít nhất 1 người lớn trong phòng."));
-        }
-        if (adultCount > maxAdults || childrenCount > maxChildren) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Vượt quá sức chứa tối đa của phòng (" + maxAdults + " NL, " + maxChildren + " TE)."));
-        }
-
-        detail.setAdultCount(adultCount);
-        detail.setChildrenCount(childrenCount);
-        detail.getRentalGuests().clear();
-
-        for (int idx = 0; idx < guests.size(); idx++) {
-            var g = guests.get(idx);
-            RentalGuest entity = new RentalGuest();
-            entity.setId(AppUtils.generateId("RGS", 10));
-            entity.setFullName(AppUtils.safeTrim(g.getFullName()));
-            String pid = AppUtils.safeTrim(g.getPid());
-            String phone = AppUtils.safeTrim(g.getPhoneNumber());
-            entity.setPid(pid.isEmpty() ? null : pid);
-            entity.setPhoneNumber(phone.isEmpty() ? null : phone);
-            entity.setIsAdult(g.getIsAdult() == null || g.getIsAdult());
-            entity.setIsRepresentative(idx == 0 || Boolean.TRUE.equals(g.getIsRepresentative()));
-            entity.setRentalDetail(detail);
-            detail.getRentalGuests().add(entity);
-        }
-
-        rentalDetailRepository.save(detail);
-        return ResponseEntity.ok(Map.of("message", "Đã cập nhật danh sách khách lưu trú Phòng " + roomName + "."));
+    @PostMapping("/rentals/{rentalId}/services")
+    public ResponseEntity<?> addServiceToRental(@PathVariable String rentalId, @RequestBody Map<String, Object> payload) {
+        return executeAuthorized(() -> Map.of("message", staffStayService.addServiceToRental(rentalId, payload)));
     }
 
     @DeleteMapping("/service-usages/{usageId}")
-    @Transactional
     public ResponseEntity<?> removeServiceFromRental(@PathVariable String usageId) {
-        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        return executeAuthorized(() -> Map.of("message", staffStayService.removeServiceFromRental(usageId)));
+    }
 
-        ServiceUsage usage = serviceUsageRepository.findById(usageId).orElse(null);
-        if (usage == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Không tìm thấy bản ghi dịch vụ cần hủy."));
-        }
+    @PostMapping("/rentals/{rentalId}/final-payment")
+    public ResponseEntity<?> collectFinalPayment(@PathVariable String rentalId,
+                                                 @RequestBody(required = false) Map<String, String> payload) {
+        return executeAuthorized(() -> staffStayService.collectFinalPayment(rentalId, payload));
+    }
 
-        RentalDetail detail = usage.getRentalDetail();
-        Rental rental = (detail != null) ? detail.getRental() : null;
-        if (rental == null) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Dữ liệu đơn thuê của dịch vụ này không hợp lệ."));
-        }
+    @PostMapping("/rentals/{rentalId}/check-out")
+    public ResponseEntity<?> checkOut(@PathVariable String rentalId) {
+        return executeAuthorized(() -> Map.of("message", staffStayService.checkOut(rentalId)));
+    }
 
-        if (rental.getStatus() == RentalStatus.COMPLETED || rental.getStatus() == RentalStatus.CANCELLED) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Đơn thuê đã kết thúc hoặc đã hủy, không thể xóa dịch vụ."));
-        }
+    @PostMapping("/rental-details/{detailId}/change-room")
+    public ResponseEntity<?> changeRoom(@PathVariable String detailId, @RequestBody Map<String, Object> payload) {
+        return executeAuthorized(() -> Map.of("message", staffStayService.changeRoom(detailId, payload)));
+    }
 
-        boolean isActive = rental.getRentalDetails().stream()
-                .anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN || d.getStatus() == RentalDetailStatus.OVERDUE);
-        if (!isActive) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Chỉ có thể hủy dịch vụ khi khách đang trong thời gian lưu trú."));
-        }
+    @PutMapping("/rooms/{roomId}/status/available")
+    public ResponseEntity<?> markRoomAvailable(@PathVariable String roomId) {
+        return executeAuthorized(() -> Map.of("message", staffStayService.markRoomAvailable(roomId)));
+    }
 
-        if (billingService.hasSettlementPayment(rental.getId())) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Đơn thuê đã hoàn tất thanh toán cuối, không thể hủy dịch vụ đã chốt trên hóa đơn!"));
-        }
-
-        String serviceName = usage.getService() != null ? usage.getService().getName() : "dịch vụ";
-        serviceUsageRepository.delete(usage);
-
-        return ResponseEntity.ok(Map.of("message", "Đã hủy " + serviceName + " khỏi đơn thuê thành công."));
+    @PutMapping("/rental-details/{detailId}/guests")
+    public ResponseEntity<?> updateRoomGuests(@PathVariable String detailId,
+                                              @RequestBody List<CheckInRoomGuestsRequest.GuestItem> guests) {
+        return executeAuthorized(() -> Map.of("message", staffBookingService.updateRoomGuests(detailId, guests)));
     }
 }

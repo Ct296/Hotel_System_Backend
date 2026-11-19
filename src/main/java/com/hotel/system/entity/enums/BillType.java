@@ -6,7 +6,7 @@ import lombok.Getter;
 public enum BillType {
     DEPOSIT("Hóa đơn đặt cọc"),
     FINAL("Hóa đơn tất toán"),
-    EARLY_CHECKOUT("Hóa đơn thanh toán sớm");
+    REFUND("Hóa đơn hoàn tiền");
 
     private final String displayName;
 

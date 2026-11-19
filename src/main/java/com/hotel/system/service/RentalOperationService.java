@@ -57,7 +57,8 @@ public class RentalOperationService {
     public LocalDateTime calculateExpectedCheckout(Rental rental) {
         if (rental == null || rental.getRentalDetails() == null) return null;
         return rental.getRentalDetails().stream()
-                .filter(d -> d.getCheckinDate() != null && d.getLengthOfStay() != null)
+                .filter(d -> d.getStatus() != RentalDetailStatus.CANCELLED && d.getStatus() != RentalDetailStatus.MOVED)
+                .filter(d -> d.getCheckinDate() != null && d.getLengthOfStay() != null && d.getLengthOfStay() > 0)
                 .map(d -> d.getCheckinDate().plusHours(d.getLengthOfStay()))
                 .max(LocalDateTime::compareTo).orElse(null);
     }
@@ -142,25 +143,39 @@ public class RentalOperationService {
     public boolean hasBlockingConflict(String roomId, LocalDateTime requestedStart, LocalDateTime requestedEndWithBuffer, String ignoreRentalId) {
         return rentalRepository.findByRentalDetails_RoomIdAndRentalDetails_StatusIn(roomId, BLOCKING_BOOKING_STATUSES).stream()
                 .filter(existing -> ignoreRentalId == null || !existing.getId().equals(ignoreRentalId))
-                .filter(existing -> existing.getRentalDetails() != null && !existing.getRentalDetails().isEmpty()
-                                   && existing.getRentalDetails().get(0).getCheckinDate() != null)
-                .filter(existing -> existing.getRentalDetails().get(0).getLengthOfStay() != null && existing.getRentalDetails().get(0).getLengthOfStay() > 0)
-                .anyMatch(existing -> {
-                    LocalDateTime existingStart = existing.getRentalDetails().get(0).getCheckinDate();
-                    LocalDateTime existingEndWithBuffer = calculateRentalEndWithBuffer(existing);
+                .filter(existing -> existing.getRentalDetails() != null)
+                .flatMap(existing -> existing.getRentalDetails().stream())
+                .filter(detail -> detail.getRoom() != null && roomId.equals(detail.getRoom().getId()))
+                .filter(detail -> detail.getStatus() != null && BLOCKING_BOOKING_STATUSES.contains(detail.getStatus()))
+                .filter(detail -> detail.getCheckinDate() != null && detail.getLengthOfStay() != null && detail.getLengthOfStay() > 0)
+                .anyMatch(detail -> {
+                    LocalDateTime existingStart = detail.getCheckinDate();
+                    LocalDateTime existingEndWithBuffer = calculateDetailEndWithBuffer(detail);
                     return existingEndWithBuffer != null
                             && existingStart.isBefore(requestedEndWithBuffer)
                             && existingEndWithBuffer.isAfter(requestedStart);
                 });
     }
 
-    private LocalDateTime calculateRentalEndWithoutBuffer(Rental rental) {
-        RentalDetail firstDetail = (rental != null && rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty())
-                                     ? rental.getRentalDetails().get(0) : null;
-        if (firstDetail == null || firstDetail.getCheckinDate() == null || firstDetail.getLengthOfStay() == null || firstDetail.getLengthOfStay() <= 0) {
+    public LocalDateTime calculateDetailEndWithBuffer(RentalDetail detail) {
+        LocalDateTime endWithoutBuffer = calculateDetailEndWithoutBuffer(detail);
+        return endWithoutBuffer == null ? null : endWithoutBuffer.plusMinutes(CLEANING_BUFFER_MINUTES);
+    }
+
+    public LocalDateTime calculateDetailEndWithoutBuffer(RentalDetail detail) {
+        if (detail == null || detail.getCheckinDate() == null || detail.getLengthOfStay() == null || detail.getLengthOfStay() <= 0) {
             return null;
         }
-        return firstDetail.getCheckinDate().plusHours(firstDetail.getLengthOfStay());
+        return detail.getCheckinDate().plusHours(detail.getLengthOfStay());
+    }
+
+    private LocalDateTime calculateRentalEndWithoutBuffer(Rental rental) {
+        if (rental == null || rental.getRentalDetails() == null) return null;
+        return rental.getRentalDetails().stream()
+                .filter(d -> d.getStatus() != RentalDetailStatus.CANCELLED && d.getStatus() != RentalDetailStatus.MOVED)
+                .map(this::calculateDetailEndWithoutBuffer)
+                .filter(java.util.Objects::nonNull)
+                .max(LocalDateTime::compareTo).orElse(null);
     }
 
     public LocalDateTime calculateRentalEndWithBuffer(Rental rental) {
@@ -189,5 +204,14 @@ public class RentalOperationService {
     public LocalDateTime findLatestCheckoutTime(String roomId) {
         if (roomId == null || roomId.isBlank()) return null;
         return billRepository.findLatestCheckoutTimeByRoomId(roomId);
+    }
+
+    public String extractRoomNames(Rental rental) {
+        if (rental == null || rental.getRentalDetails() == null) return "N/A";
+        return rental.getRentalDetails().stream()
+                .filter(d -> d.getStatus() != RentalDetailStatus.CANCELLED)
+                .map(d -> d.getRoom() != null ? d.getRoom().getName() : "N/A")
+                .distinct()
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 }

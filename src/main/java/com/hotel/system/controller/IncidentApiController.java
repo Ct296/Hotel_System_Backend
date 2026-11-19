@@ -135,17 +135,18 @@ public class IncidentApiController {
         }
         
         List<RentalDetail> activeRentals = rentalDetailRepository.findAll().stream()
-                .filter(rd -> rd.getStatus() == null || 
-                              "IN_PROGRESS".equals(rd.getStatus().name()) || 
-                              "CHECKED_IN".equals(rd.getStatus().name())) 
-                .toList();
+            .filter(rd -> rd.getStatus() == null
+                    || "IN_PROGRESS".equals(rd.getStatus().name())
+                    || "CHECKED_IN".equals(rd.getStatus().name())
+                    || "OVERDUE".equals(rd.getStatus().name()))
+            .toList();
         
         List<Map<String, Object>> rentals = new ArrayList<>();
-        for (RentalDetail rd : activeRentals) {
-            if(rd.getRoom() != null) {
-                rentals.add(Map.of("id", rd.getId(), "roomName", rd.getRoom().getName()));
+            for (RentalDetail rd : activeRentals) {
+                if(rd.getRoom() != null) {
+                    rentals.add(Map.of("id", rd.getId(), "roomName", rd.getRoom().getName()));
+                }
             }
-        }
         
         return ResponseEntity.ok(Map.of("incidents", result, "activeRentals", rentals));
     }
@@ -175,10 +176,21 @@ public class IncidentApiController {
         incident.setName((String) payload.get("name"));
         incident.setDescription((String) payload.get("description"));
         incident.setOccurTime(LocalDateTime.parse(payload.get("occurTime").toString()));
-        incident.setResponsible((String) payload.get("responsible"));
-        
-        Object moneyObj = payload.get("money");
-        incident.setMoney(moneyObj != null && !moneyObj.toString().isBlank() ? Double.valueOf(moneyObj.toString()) : 0.0);
+        String responsible = payload.get("responsible") != null
+            ? payload.get("responsible").toString().trim().toUpperCase(): "NONE";
+            if (!responsible.equals("CUSTOMER") && !responsible.equals("HOTEL") && !responsible.equals("NONE")) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Bên chịu trách nhiệm chỉ nhận CUSTOMER, HOTEL hoặc NONE"));
+            }
+            incident.setResponsible(responsible);
+
+            Object moneyObj = payload.get("money");
+            double moneyVal = (moneyObj != null && !moneyObj.toString().isBlank())
+                    ? Double.parseDouble(moneyObj.toString())
+                    : 0.0;
+            if (moneyVal < 0) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Số tiền sự cố không được âm"));
+            }
+        incident.setMoney("NONE".equals(responsible) ? 0.0 : moneyVal);
         
         incident.setHandle((String) payload.get("handle"));
         

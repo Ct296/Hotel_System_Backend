@@ -9,6 +9,8 @@ import com.hotel.system.entity.enums.*;
 import com.hotel.system.repository.*;
 import com.hotel.system.security.SecurityUtils;
 import com.hotel.system.service.*;
+import com.hotel.system.service.CustomerHelperService.HomeRoomTypeView;
+import com.hotel.system.service.CustomerHelperService.RoomCardView;
 import com.hotel.system.util.AppUtils;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -24,7 +26,6 @@ import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,17 +33,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CustomerController {
 
-    private static final Set<RentalDetailStatus> BLOCKING_BOOKING_STATUSES = EnumSet.of(
-            RentalDetailStatus.PENDING, RentalDetailStatus.CHECKED_IN, RentalDetailStatus.OVERDUE
-    );
-
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
-
-    @Value("${hotel.booking.hold-minutes:15}")
-    private long bookingHoldMinutes;
-
-    @Value("${hotel.room.cleaning-buffer-minutes:30}")
-    private long cleaningBufferMinutes;
 
     @Value("${hotel.stay.minimum-hours:1}")
     private int minimumStayHours;
@@ -52,7 +43,6 @@ public class CustomerController {
 
     private final RoomTypeRepository roomTypeRepository;
     private final RoomRepository roomRepository;
-    private final RoomImageRepository roomImageRepository;
     private final CustomerRepository customerRepository;
     private final RentalRepository rentalRepository;
     private final TierHistoryRepository tierHistoryRepository;
@@ -66,13 +56,11 @@ public class CustomerController {
 
     private final VnpayService vnpayService;
     private final CustomerBookingService customerBookingService;
+    private final CustomerHelperService customerHelperService;
     private final ProfileService profileService;
     private final RentalOperationService rentalOperationService;
     private final CustomerTierService customerTierService;
     private final SecurityUtils securityUtils;
-
-    private record RoomCardView(Room room, double displayPrice, String roomTypeName, double basePrice, String eventName, double surchargeAmount) {}
-    private record HomeRoomTypeView(RoomType roomType, double displayPrice, double basePrice, String eventName, double surchargeAmount) {}
 
     private Users getLoggedInCustomer() {
         return securityUtils.getCurrentUserWithRole(Role.CUSTOMER);
@@ -81,33 +69,33 @@ public class CustomerController {
     @GetMapping("/api/public/home")
     public ResponseEntity<?> home() {
         LocalDateTime now = LocalDateTime.now();
-        
+
         List<HomeRoomTypeView> roomTypeViews = roomTypeRepository.findAll().stream()
             .map(roomType -> {
-                double basePrice = getSafeBasePrice(roomType);
-                
+                double basePrice = customerHelperService.getSafeBasePrice(roomType);
+
                 AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(roomType.getId())
                         .stream()
                         .filter(p -> p.getStartDate() != null && p.getEndDate() != null)
                         .filter(p -> !now.isBefore(p.getStartDate()) && !now.isAfter(p.getEndDate()))
                         .findFirst()
                         .orElse(null);
-                        
-                double surcharge = (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null) 
+
+                double surcharge = (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null)
                         ? matchedPeriod.getPriceRate().getSurchargeAmount() : 0.0;
-                        
+
                 double actualSurchargeMoney = basePrice * (surcharge / 100.0);
-                        
-                String eventName = (matchedPeriod != null && matchedPeriod.getPriceRate() != null) 
+
+                String eventName = (matchedPeriod != null && matchedPeriod.getPriceRate() != null)
                         ? matchedPeriod.getPriceRate().getEventName() : null;
-                
+
                 return new HomeRoomTypeView(roomType, basePrice + actualSurchargeMoney, basePrice, eventName, actualSurchargeMoney);
             }).toList();
 
         List<HomeRoomTypeView> roomTypesByPriceDesc = roomTypeViews.stream()
                 .sorted(Comparator.comparing(HomeRoomTypeView::basePrice).reversed()
                 .thenComparing(item -> item.roomType().getName(), Comparator.nullsLast(String::compareToIgnoreCase))).toList();
-                
+
         List<HomeRoomTypeView> roomTypesByPriceAsc = roomTypeViews.stream()
                 .sorted(Comparator.comparing(HomeRoomTypeView::basePrice)
                 .thenComparing(item -> item.roomType().getName(), Comparator.nullsLast(String::compareToIgnoreCase))).toList();
@@ -135,7 +123,7 @@ public class CustomerController {
             r.put("surchargeAmount", view.surchargeAmount());
 
             List<String> typeImages = roomRepository.findByRoomTypeId(rt.getId()).stream()
-                    .flatMap(room -> getRoomGalleryPaths(room).stream())
+                    .flatMap(room -> customerHelperService.getRoomGalleryPaths(room).stream())
                     .filter(img -> img != null && !img.contains("default_room.jpg"))
                     .distinct()
                     .collect(Collectors.toList());
@@ -161,7 +149,7 @@ public class CustomerController {
                                    @RequestParam(required = false, defaultValue = "default") String sortBy) {
         rentalOperationService.expirePendingBookingsWithoutDeposit();
 
-        LocalDateTime minimumBookingStartTime = getMinimumBookingStartTime();
+        LocalDateTime minimumBookingStartTime = customerHelperService.getMinimumBookingStartTime();
         LocalDateTime adjustedCheckIn = checkIn != null ? checkIn : minimumBookingStartTime;
         LocalDateTime adjustedCheckOut = checkOut != null ? checkOut : adjustedCheckIn.plusHours(1);
 
@@ -174,27 +162,27 @@ public class CustomerController {
         List<RoomCardView> roomCards = roomRepository.findAll().stream()
                 .filter(room -> room.getStatus() == RoomStatus.AVAILABLE)
                 .filter(room -> typeId == null || typeId.isBlank() || (room.getRoomType() != null && typeId.equals(room.getRoomType().getId())))
-                .filter(room -> isRoomAvailable(room, searchCheckIn, searchCheckOut))
+                .filter(room -> customerHelperService.isRoomAvailable(room, searchCheckIn, searchCheckOut))
                 .map(room -> {
                     double basePrice = room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
-                                         
+
                     AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(room.getRoomType().getId())
                             .stream()
                             .filter(p -> p.getStartDate() != null && p.getEndDate() != null)
                             .filter(p -> !searchCheckIn.isBefore(p.getStartDate()) && !searchCheckIn.isAfter(p.getEndDate()))
                             .findFirst()
                             .orElse(null);
-                                                 
-                    double surcharge = (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null) 
+
+                    double surcharge = (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null)
                              ? matchedPeriod.getPriceRate().getSurchargeAmount() : 0.0;
-                                         
+
                     double actualSurchargeMoney = basePrice * (surcharge / 100.0);
-                                         
-                    String eventName = (matchedPeriod != null && matchedPeriod.getPriceRate() != null) 
+
+                    String eventName = (matchedPeriod != null && matchedPeriod.getPriceRate() != null)
                              ? matchedPeriod.getPriceRate().getEventName() : null;
                     return new RoomCardView(room, basePrice + actualSurchargeMoney, room.getRoomType() != null ? room.getRoomType().getName() : "", basePrice, eventName, actualSurchargeMoney);
                 })
-                .sorted(resolveRoomSort(sortBy)).toList();
+                .sorted(customerHelperService.resolveRoomSort(sortBy)).toList();
 
         List<Map<String, Object>> responseRooms = new ArrayList<>();
         for (RoomCardView view : roomCards) {
@@ -203,7 +191,7 @@ public class CustomerController {
             r.put("name", view.room().getName());
             r.put("roomType", view.room().getRoomType());
             r.put("displayPrice", view.displayPrice());
-            r.put("images", getRoomGalleryPaths(view.room()));
+            r.put("images", customerHelperService.getRoomGalleryPaths(view.room()));
             r.put("basePrice", view.basePrice());
             r.put("eventName", view.eventName());
             r.put("surchargeAmount", view.surchargeAmount());
@@ -232,58 +220,60 @@ public class CustomerController {
     public ResponseEntity<?> calculateBooking(@RequestBody Map<String, Object> payload) {
         List<String> roomIds = (List<String>) payload.get("roomId");
         if (roomIds == null || roomIds.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "Vui lòng chọn ít nhất 1 phòng."));
-        
+
         LocalDateTime checkIn = payload.get("checkIn") != null ? LocalDateTime.parse(payload.get("checkIn").toString()) : null;
         LocalDateTime checkOut = payload.get("checkOut") != null ? LocalDateTime.parse(payload.get("checkOut").toString()) : null;
-        
-        RentalType rentalType = payload.get("rentalType") != null ? 
+
+        RentalType rentalType = payload.get("rentalType") != null ?
                 RentalType.valueOf(payload.get("rentalType").toString()) : RentalType.HOURLY;
 
         List<Room> selectedRooms = roomRepository.findAllById(roomIds);
         if (selectedRooms.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy phòng."));
-        
-        LocalDateTime minimumBookingStartTime = getMinimumBookingStartTime();
+
+        LocalDateTime minimumBookingStartTime = customerHelperService.getMinimumBookingStartTime();
         LocalDateTime finalCheckIn = checkIn != null ? checkIn : minimumBookingStartTime;
         LocalDateTime finalCheckOut = checkOut != null ? checkOut : finalCheckIn.plusHours(1);
         if (finalCheckIn.isBefore(minimumBookingStartTime)) finalCheckIn = minimumBookingStartTime;
         if (!finalCheckOut.isAfter(finalCheckIn)) finalCheckOut = finalCheckIn.plusHours(1);
-        
+
         double totalRoomUnitPrice = 0;
         double originalRoomUnitPrice = 0;
         boolean bookingAvailable = true;
         String conflictMessage = null;
-        
+
         for (Room room : selectedRooms) {
             double basePrice = 0.0;
             if (rentalType == RentalType.DAILY) {
-                basePrice = room.getRoomType() != null && room.getRoomType().getDailyPrice() != null ? 
-                            room.getRoomType().getDailyPrice() : 
+                basePrice = room.getRoomType() != null && room.getRoomType().getDailyPrice() != null ?
+                            room.getRoomType().getDailyPrice() :
                             (room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
             } else {
                 basePrice = room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
             }
 
             originalRoomUnitPrice += basePrice;
-            totalRoomUnitPrice += resolveRoomUnitPrice(room, finalCheckIn, rentalType);
-            
-            Rental conflictRental = findBlockingRentalConflict(room, finalCheckIn, finalCheckOut);
+            totalRoomUnitPrice += customerHelperService.resolveRoomUnitPrice(room, finalCheckIn, rentalType);
+
+            Rental conflictRental = customerHelperService.findBlockingRentalConflict(room, finalCheckIn, finalCheckOut);
             if (conflictRental != null && bookingAvailable) {
                 bookingAvailable = false;
-                conflictMessage = "Phòng " + room.getName() + " đang bận lịch trong khung: " + buildConflictRange(conflictRental);
+                conflictMessage = "Phòng " + room.getName() + " đang bận lịch trong khung: " + customerHelperService.buildConflictRange(conflictRental);
             }
         }
-        
-        int stayHours = calculateStayHours(finalCheckIn, finalCheckOut);
-        
-        double originalRoomSubTotal = calculateRoomSubTotal(originalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
-        double roomSubTotal = calculateRoomSubTotal(totalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
-        double eventSurchargeAmount = roomSubTotal - originalRoomSubTotal; 
-        double totalPrice = roomSubTotal; 
-        
+
+        int stayHours = customerHelperService.calculateStayHours(finalCheckIn, finalCheckOut);
+
+        double originalRoomSubTotal = customerHelperService.calculateRoomSubTotal(originalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
+        double roomSubTotal = customerHelperService.calculateRoomSubTotal(totalRoomUnitPrice, finalCheckIn, finalCheckOut, rentalType);
+        double eventSurchargeAmount = roomSubTotal - originalRoomSubTotal;
+        double totalPrice = roomSubTotal;
+
         double totalDepositAmount = 0;
         for (Room room : selectedRooms) {
-            double singleSub = calculateRoomSubTotal(resolveRoomUnitPrice(room, finalCheckIn, rentalType), finalCheckIn, finalCheckOut, rentalType);
-            totalDepositAmount += calculateDepositAmount(singleSub, resolveDepositPercent(room));
+            double singleSub = customerHelperService.calculateRoomSubTotal(
+                    customerHelperService.resolveRoomUnitPrice(room, finalCheckIn, rentalType),
+                    finalCheckIn, finalCheckOut, rentalType);
+            totalDepositAmount += customerHelperService.calculateDepositAmount(singleSub, customerHelperService.resolveDepositPercent(room));
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -293,7 +283,7 @@ public class CustomerController {
         response.put("stayHours", stayHours);
         response.put("originalRoomSubTotal", originalRoomSubTotal);
         response.put("eventSurchargeAmount", eventSurchargeAmount);
-        response.put("shortStaySurchargeAmount", 0.0); 
+        response.put("shortStaySurchargeAmount", 0.0);
         response.put("totalPrice", totalPrice);
         response.put("depositAmount", totalDepositAmount);
         response.put("remainingAmount", totalPrice - totalDepositAmount);
@@ -343,16 +333,16 @@ public class CustomerController {
         List<RentalDetail> details = rental.getRentalDetails();
         int stayHours = details.get(0).getLengthOfStay() == null ? minimumStayHours : Math.max(details.get(0).getLengthOfStay(), minimumStayHours);
         RentalType rentalType = details.get(0).getRentalType() != null ? details.get(0).getRentalType() : RentalType.HOURLY;
-        
+
         double totalDepositAmount = 0;
 
         for (RentalDetail detail : details) {
             double unitPrice = detail.getUnitPrice() == null ? 0.0 : detail.getUnitPrice();
             LocalDateTime ci = detail.getCheckinDate() != null ? detail.getCheckinDate() : LocalDateTime.now();
             LocalDateTime co = ci.plusHours(stayHours);
-            
-            double subTotal = calculateRoomSubTotal(unitPrice, ci, co, rentalType);
-            totalDepositAmount += calculateDepositAmount(subTotal, resolveDepositPercent(detail.getRoom()));
+
+            double subTotal = customerHelperService.calculateRoomSubTotal(unitPrice, ci, co, rentalType);
+            totalDepositAmount += customerHelperService.calculateDepositAmount(subTotal, customerHelperService.resolveDepositPercent(detail.getRoom()));
         }
 
         try {
@@ -377,11 +367,11 @@ public class CustomerController {
 
     @GetMapping("/api/public/vnpay-return")
     public void handleVnpayReturn(@RequestParam Map<String, String> params, HttpServletResponse response) throws IOException {
-        String frontendRedirectUrl = this.frontendReturnUrl; 
+        String frontendRedirectUrl = this.frontendReturnUrl;
 
         VnpayPaymentResult paymentResult = vnpayService.parsePaymentResult(params);
         String rentalId = paymentResult.getTxnRef();
-        
+
         if (rentalId == null || rentalId.isBlank()) {
             response.sendRedirect(frontendRedirectUrl + "?error=invalid_txn");
             return;
@@ -401,7 +391,7 @@ public class CustomerController {
         List<RentalDetail> details = rental.getRentalDetails();
         int stayHours = details.get(0).getLengthOfStay() == null ? minimumStayHours : Math.max(details.get(0).getLengthOfStay(), minimumStayHours);
         RentalType rentalType = details.get(0).getRentalType() != null ? details.get(0).getRentalType() : RentalType.HOURLY;
-        
+
         double totalDepositAmount = 0;
 
         for (RentalDetail detail : details) {
@@ -409,8 +399,8 @@ public class CustomerController {
             LocalDateTime ci = detail.getCheckinDate() != null ? detail.getCheckinDate() : LocalDateTime.now();
             LocalDateTime co = ci.plusHours(stayHours);
 
-            double subTotal = calculateRoomSubTotal(unitPrice, ci, co, rentalType);
-            totalDepositAmount += calculateDepositAmount(subTotal, resolveDepositPercent(detail.getRoom()));
+            double subTotal = customerHelperService.calculateRoomSubTotal(unitPrice, ci, co, rentalType);
+            totalDepositAmount += customerHelperService.calculateDepositAmount(subTotal, customerHelperService.resolveDepositPercent(detail.getRoom()));
         }
 
         Bill depositBill = new Bill();
@@ -449,7 +439,7 @@ public class CustomerController {
                     "Chuyển khoản VNPay"
             );
         }
-        
+
         response.sendRedirect(frontendRedirectUrl + "?status=success");
     }
 
@@ -501,14 +491,14 @@ public class CustomerController {
         customerTierService.syncCustomerTierByBills(customerDetail);
 
         TierHistory currentTierHistory = tierHistoryRepository.findTopByCustomerIdAndEndDateIsNullOrderByStartDateDesc(currentUser.getId()).orElse(null);
-        
+
         List<Rental> rentals = rentalRepository.findByCustomerId(currentUser.getId()).stream()
                 .sorted(Comparator.comparing(Rental::getRentDate, Comparator.nullsLast(Comparator.reverseOrder()))).toList();
-        
+
         Set<String> rentalIds = rentals.stream().map(Rental::getId).filter(id -> id != null && !id.isBlank()).collect(Collectors.toSet());
         List<Bill> bills = billRepository.findAllByOrderByCreateDateDesc().stream()
                 .filter(bill -> bill.getRental() != null && rentalIds.contains(bill.getRental().getId())).toList();
-        
+
         Set<String> billIds = bills.stream().map(Bill::getId).filter(id -> id != null && !id.isBlank()).collect(Collectors.toSet());
         List<Payment> payments = paymentRepository.findAllByOrderByDateDesc().stream()
                 .filter(payment -> payment.getBill() != null && billIds.contains(payment.getBill().getId())).toList();
@@ -558,7 +548,7 @@ public class CustomerController {
     public ResponseEntity<?> getCustomerAccountStatuses() {
         Users currentUser = getLoggedInCustomer();
         if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        
+
         List<AccountStatus> statuses = accountStatusRepository
                 .findByAccount_User_IdOrderByStartTimeDesc(currentUser.getId());
         return ResponseEntity.ok(statuses);
@@ -618,162 +608,6 @@ public class CustomerController {
         return ResponseEntity.ok(Map.of("message", "Đã xóa đánh giá."));
     }
 
-    private boolean isRoomAvailable(Room room, LocalDateTime checkIn, LocalDateTime checkOut) {
-        return findBlockingRentalConflict(room, checkIn, checkOut) == null;
-    }
-
-    private Rental findBlockingRentalConflict(Room room, LocalDateTime checkIn, LocalDateTime checkOut) {
-        if (room == null || room.getStatus() != RoomStatus.AVAILABLE || checkIn == null || checkOut == null) return new Rental();
-
-        LocalDateTime requestedStart = checkIn;
-        LocalDateTime requestedEnd = checkOut.plusMinutes(cleaningBufferMinutes);
-
-        return rentalRepository.findAll().stream()
-                .filter(rental -> rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty() && rental.getRentalDetails().get(0).getRoom() != null)
-                .filter(rental -> rental.getRentalDetails().get(0).getRoom().getId().equals(room.getId()))
-                .filter(rental -> rental.getRentalDetails().get(0).getStatus() != null && BLOCKING_BOOKING_STATUSES.contains(rental.getRentalDetails().get(0).getStatus()))
-                .filter(rental -> rental.getRentalDetails().get(0).getCheckinDate() != null)
-                .filter(rental -> rental.getRentalDetails().get(0).getLengthOfStay() != null && rental.getRentalDetails().get(0).getLengthOfStay() > 0)
-                .filter(rental -> {
-                    LocalDateTime exStart = rental.getRentalDetails().get(0).getCheckinDate();
-                    LocalDateTime exEnd = rentalOperationService.calculateRentalEndWithBuffer(rental);
-                    return exEnd != null && exStart.isBefore(requestedEnd) && exEnd.isAfter(requestedStart);
-                }).min(Comparator.comparing(r -> r.getRentalDetails().get(0).getCheckinDate())).orElse(null);
-    }
-
-    private String buildConflictRange(Rental rental) {
-        RentalDetail firstDetail = (rental != null && rental.getRentalDetails() != null && !rental.getRentalDetails().isEmpty()) ? rental.getRentalDetails().get(0) : null;
-        if (firstDetail == null || firstDetail.getCheckinDate() == null || firstDetail.getLengthOfStay() == null) return "không xác định";
-        LocalDateTime end = rentalOperationService.calculateRentalEndWithBuffer(rental);
-        return end == null ? "không xác định" : firstDetail.getCheckinDate().format(DATE_TIME_FORMATTER) + " đến " + end.format(DATE_TIME_FORMATTER);
-    }
-
-    private int calculateStayHours(LocalDateTime checkIn, LocalDateTime checkOut) {
-        if (checkIn == null || checkOut == null) return minimumStayHours;
-        long stayHours = ChronoUnit.HOURS.between(checkIn, checkOut);
-        return stayHours < minimumStayHours ? minimumStayHours : (int) stayHours;
-    }
-
-    private double calculateRoomSubTotal(double roomUnitPrice, LocalDateTime checkIn, LocalDateTime checkOut, RentalType rentalType) {
-        if (checkIn == null || checkOut == null) return 0.0;
-        
-        if (rentalType == RentalType.DAILY) {
-            long baseNights = ChronoUnit.DAYS.between(checkIn.toLocalDate(), checkOut.toLocalDate());
-            baseNights = Math.max(0, baseNights);
-
-            double earlyCiSurcharge = 0.0;
-            int ciHour = checkIn.getHour();
-            if (ciHour < 5) earlyCiSurcharge = 1.0;
-            else if (ciHour < 9) earlyCiSurcharge = 0.5;
-            else if (ciHour < 14) earlyCiSurcharge = 0.3;
-
-            double lateCoSurcharge = 0.0;
-            int coMinutes = checkOut.getHour() * 60 + checkOut.getMinute();
-            if (coMinutes > 1080) lateCoSurcharge = 1.0;
-            else if (coMinutes > 900) lateCoSurcharge = 0.5;
-            else if (coMinutes > 720) lateCoSurcharge = 0.3;
-
-            double totalMultiplier = baseNights + earlyCiSurcharge + lateCoSurcharge;
-            if (totalMultiplier <= 0) totalMultiplier = 1.0; 
-            
-            return Math.max(roomUnitPrice, 0.0) * totalMultiplier;
-        }
-        
-        long stayMinutes = ChronoUnit.MINUTES.between(checkIn, checkOut);
-        long fullHours = stayMinutes / 60;
-        int finalHours = Math.max(minimumStayHours, (int) fullHours + (stayMinutes % 60 > 30 ? 1 : 0));
-        return Math.max(roomUnitPrice, 0.0) * finalHours;
-    }
-
-    private double resolveDepositPercent(Room room) {
-        if (room == null || room.getRoomType() == null || room.getRoomType().getDepositPercent() == null) return 0.0;
-        double dp = room.getRoomType().getDepositPercent();
-        return dp < 0 ? 0.0 : (dp > 100 ? 100.0 : dp);
-    }
-
-    private double calculateDepositAmount(double totalAmount, double depositPercent) {
-        double dp = depositPercent < 0 ? 0.0 : (depositPercent > 100 ? 100.0 : depositPercent);
-        return Math.max(totalAmount, 0.0) * dp / 100.0;
-    }
-
-    private double resolveRoomUnitPrice(Room room, LocalDateTime checkInDate, RentalType rentalType) {
-        if (room == null || room.getRoomType() == null) return 0.0;
-        
-        double basePrice = 0.0;
-        if (rentalType == RentalType.DAILY) {
-            basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() : 
-                        (room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
-        } else {
-            basePrice = room.getRoomType().getBasePrice() == null ? 0.0 : room.getRoomType().getBasePrice();
-        }
-        
-        if (room.getRoomType().getId() == null || checkInDate == null) return basePrice;
-        
-        AppliedPeriod matchedPeriod = appliedPeriodRepository.findByRoomTypeIdOrderByStartDateDesc(room.getRoomType().getId())
-                .stream().filter(p -> p.getStartDate() != null && p.getEndDate() != null)
-                .filter(p -> !checkInDate.isBefore(p.getStartDate()) && !checkInDate.isAfter(p.getEndDate()))
-                .findFirst().orElse(null);
-        
-        if (matchedPeriod != null && matchedPeriod.getPriceRate() != null && matchedPeriod.getPriceRate().getSurchargeAmount() != null) {
-            double percent = matchedPeriod.getPriceRate().getSurchargeAmount(); 
-            double surchargeMoney = basePrice * (percent / 100.0); 
-            return basePrice + surchargeMoney; 
-        }
-        return basePrice;
-    }
-
-    private LocalDateTime getMinimumBookingStartTime() {
-        LocalDateTime now = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
-        return LocalDateTime.now().isAfter(now) ? now.plusHours(1) : now;
-    }
-
-    private double getSafeBasePrice(RoomType roomType) { return roomType == null || roomType.getBasePrice() == null ? 0.0 : roomType.getBasePrice(); }
-
-    private String normalizeRoomSort(String sortBy) {
-        String normalized = AppUtils.safeTrim(sortBy).toLowerCase();
-        return switch (normalized) {
-            case "floor_desc", "floor_asc", "price_desc", "price_asc", "tier_desc", "tier_asc" -> normalized;
-            default -> "default";
-        };
-    }
-
-    private Comparator<RoomCardView> resolveRoomSort(String sortBy) {
-        String normalizedSort = normalizeRoomSort(sortBy);
-        Comparator<RoomCardView> defaultComparator = Comparator.comparing((RoomCardView item) -> AppUtils.safeTrim(item.room().getName()).replaceAll("\\d+", "").trim(), Comparator.nullsLast(String::compareToIgnoreCase))
-                .thenComparing(this::extractFloorNumber, Comparator.nullsLast(Integer::compareTo))
-                .thenComparing(item -> item.room().getName(), Comparator.nullsLast(String::compareToIgnoreCase));
-                
-        return switch (normalizedSort) {
-            case "floor_desc" -> Comparator.comparing(this::extractFloorNumber, Comparator.nullsLast(Comparator.reverseOrder())).thenComparing(item -> item.room().getName(), Comparator.nullsLast(String::compareToIgnoreCase));
-            case "floor_asc" -> Comparator.comparing(this::extractFloorNumber, Comparator.nullsLast(Integer::compareTo)).thenComparing(item -> item.room().getName(), Comparator.nullsLast(String::compareToIgnoreCase));
-            case "price_desc" -> Comparator.comparing(RoomCardView::displayPrice, Comparator.reverseOrder()).thenComparing(item -> item.room().getName(), Comparator.nullsLast(String::compareToIgnoreCase));
-            case "price_asc" -> Comparator.comparing(RoomCardView::displayPrice).thenComparing(item -> item.room().getName(), Comparator.nullsLast(String::compareToIgnoreCase));
-            case "tier_desc" -> Comparator.comparing(RoomCardView::basePrice, Comparator.reverseOrder()).thenComparing(RoomCardView::roomTypeName, Comparator.nullsLast(String::compareToIgnoreCase)).thenComparing(item -> item.room().getName(), Comparator.nullsLast(String::compareToIgnoreCase));
-            case "tier_asc" -> Comparator.comparing(RoomCardView::basePrice).thenComparing(RoomCardView::roomTypeName, Comparator.nullsLast(String::compareToIgnoreCase)).thenComparing(item -> item.room().getName(), Comparator.nullsLast(String::compareToIgnoreCase));
-            default -> defaultComparator;
-        };
-    }
-
-    private Integer extractFloorNumber(RoomCardView item) {
-        if (item == null || item.room() == null) return null;
-        String digits = AppUtils.safeTrim(item.room().getName()).replaceAll("\\D+", "");
-        if (digits.isBlank()) return null;
-        try {
-            return digits.length() >= 3 ? Integer.parseInt(digits.substring(0, digits.length() - 2)) : (digits.length() == 2 ? Integer.parseInt(digits.substring(0, 1)) : Integer.parseInt(digits));
-        } catch (NumberFormatException ex) { return null; }
-    }
-
-    private List<String> getRoomGalleryPaths(Room room) {
-        if (room == null) return List.of(getDefaultRoomImagePath());
-        List<String> paths = roomImageRepository.findAllByRoomOrderByIsPrimaryDesc(room).stream()
-                .map(RoomImage::getImagePath).filter(StringUtils::hasText).distinct().toList();
-        return paths.isEmpty() ? List.of(getDefaultRoomImagePath()) : paths;
-    }
-
-    private String getDefaultRoomImagePath() {
-        return "/image/default_room.jpg";
-    }
-    
     @PostMapping("/api/customer/profile/sync-tier")
     public ResponseEntity<?> syncMyTier() {
         Users currentUser = getLoggedInCustomer();

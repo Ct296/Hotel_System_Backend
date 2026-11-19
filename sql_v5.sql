@@ -408,7 +408,7 @@ INSERT INTO SERVICE_USAGE (SERVICE_USAGE_ID, SERVICE_USAGE_Count, SERVICE_USAGE_
 -- ===========================================================
 INSERT INTO REVIEW (REVIEW_ID, REVIEW_Rate, REVIEW_Description, REVIEW_UpdateDate, USER_ID) VALUES
     ('REV0000001', 5, 'Phòng cực kỳ sạch sẽ và thơm, nội thất sang trọng đúng chuẩn 5 sao. Nhân viên lễ tân hỗ trợ thủ tục check-in rất nhanh gọn, nhiệt tình.', '2026-09-15 10:00:00', 'USR0000009'),
-    ('REV0000002', 5, 'Phòng Cặp đôi Mường Thanh thiết kế quá đỉnh! Bồn tắm Jacuzzi và đèn LED đổi màu siêu lãng mạn, rèm tự động hiện đại, người yêu mình cực kỳ thích.', '2026-10-20 13:00:00', 'USR0000010'),
+    ('REV0000002', 5, 'Phòng Cặp đôi thiết kế quá đỉnh! Bồn tắm Jacuzzi và đèn LED đổi màu siêu lãng mạn, rèm tự động hiện đại, người yêu mình cực kỳ thích.', '2026-10-20 13:00:00', 'USR0000010'),
     ('REV0000003', 4, 'Không gian phòng đẹp, view thành phố thoáng đãng, giường nằm êm. Tuy nhiên wifi vào buổi tối hơi chập chờn và đồ ăn sáng lên món hơi chậm một chút.', '2026-03-12 09:30:00', 'USR0000011'),
     ('REV0000004', 3, 'Vị trí khách sạn thuận tiện đi lại, phòng rộng rãi. Nhưng cách âm chưa thực sự tốt, ban đêm vẫn nghe tiếng ồn ngoài hành lang và giá dịch vụ minibar hơi đắt.', '2026-05-01 14:20:00', 'USR0000012'),
     ('REV0000005', 5, 'Trải nghiệm phòng Tổng tài và Thư ký thực sự đẳng cấp! Bàn làm việc rộng, ghế ngồi cực êm, có sẵn máy pha cà phê Espresso và loa Bose nghe nhạc rất chill.', '2026-07-08 11:15:00', 'USR0000013'),

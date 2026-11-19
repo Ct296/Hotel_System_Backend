@@ -53,9 +53,23 @@ public class IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy sự cố"));
 
-        // Manager chọn thông tin nào thì update thông tin đó
-        if (request.getResponsible() != null) incident.setResponsible(request.getResponsible());
-        if (request.getMoney() != null) incident.setMoney(request.getMoney());
+        if (request.getResponsible() != null && !request.getResponsible().isBlank()) {
+            String resp = request.getResponsible().trim().toUpperCase();
+            if (!resp.equals("CUSTOMER") && !resp.equals("HOTEL") && !resp.equals("NONE")) {
+                throw new RuntimeException("Đối tượng chịu trách nhiệm không hợp lệ (chỉ nhận CUSTOMER, HOTEL hoặc NONE)");
+            }
+            incident.setResponsible(resp);
+        }
+
+        if ("NONE".equalsIgnoreCase(incident.getResponsible())) {
+            incident.setMoney(0.0);
+        } else if (request.getMoney() != null) {
+            if (request.getMoney() < 0) {
+                throw new RuntimeException("Số tiền sự cố không được âm");
+            }
+            incident.setMoney(request.getMoney());
+        }
+
         if (request.getHandle() != null) incident.setHandle(request.getHandle());
         if (request.getStatus() != null) incident.setStatus(request.getStatus());
 

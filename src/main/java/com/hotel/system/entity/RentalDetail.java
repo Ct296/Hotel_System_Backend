@@ -60,4 +60,10 @@ public class RentalDetail {
 
     @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RentalGuest> rentalGuests = new ArrayList<>();
+
+    @Column(name = "RENTAL_DETAIL_PreviousDetailId", length = 10)
+    private String previousDetailId;
+
+    @Column(name = "RENTAL_DETAIL_Note", length = 255)
+    private String note;
 }
