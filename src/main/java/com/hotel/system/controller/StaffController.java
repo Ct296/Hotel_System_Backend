@@ -701,7 +701,25 @@ public class StaffController {
             }
         }
 
+        LocalDateTime actualCheckinTime = LocalDateTime.now();
         for (RentalDetail detail : rental.getRentalDetails()) {
+            LocalDateTime plannedCheckin = detail.getCheckinDate();
+            int plannedStayHours = (detail.getLengthOfStay() != null && detail.getLengthOfStay() > 0)
+                    ? detail.getLengthOfStay() : MINIMUM_WALK_IN_HOURS;
+
+            if (plannedCheckin != null) {
+                LocalDateTime plannedCheckout = plannedCheckin.plusHours(plannedStayHours);
+                if (actualCheckinTime.isBefore(plannedCheckin)) {
+                    long minutesUntilPlannedCheckout = ChronoUnit.MINUTES.between(actualCheckinTime, plannedCheckout);
+                    int adjustedHours = (int) Math.max(
+                            plannedStayHours,
+                            (minutesUntilPlannedCheckout + 59) / 60
+                    );
+                    detail.setLengthOfStay(adjustedHours);
+                }
+            }
+
+            detail.setCheckinDate(actualCheckinTime);
             detail.setStatus(RentalDetailStatus.CHECKED_IN);
             rentalDetailRepository.save(detail);
         }
@@ -1019,5 +1037,46 @@ public class StaffController {
 
         rentalDetailRepository.save(detail);
         return ResponseEntity.ok(Map.of("message", "Đã cập nhật danh sách khách lưu trú Phòng " + roomName + "."));
+    }
+
+    @DeleteMapping("/service-usages/{usageId}")
+    @Transactional
+    public ResponseEntity<?> removeServiceFromRental(@PathVariable String usageId) {
+        if (getLoggedInStaff() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        ServiceUsage usage = serviceUsageRepository.findById(usageId).orElse(null);
+        if (usage == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Không tìm thấy bản ghi dịch vụ cần hủy."));
+        }
+
+        RentalDetail detail = usage.getRentalDetail();
+        Rental rental = (detail != null) ? detail.getRental() : null;
+        if (rental == null) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Dữ liệu đơn thuê của dịch vụ này không hợp lệ."));
+        }
+
+        if (rental.getStatus() == RentalStatus.COMPLETED || rental.getStatus() == RentalStatus.CANCELLED) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Đơn thuê đã kết thúc hoặc đã hủy, không thể xóa dịch vụ."));
+        }
+
+        boolean isActive = rental.getRentalDetails().stream()
+                .anyMatch(d -> d.getStatus() == RentalDetailStatus.CHECKED_IN || d.getStatus() == RentalDetailStatus.OVERDUE);
+        if (!isActive) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Chỉ có thể hủy dịch vụ khi khách đang trong thời gian lưu trú."));
+        }
+
+        if (billingService.hasSettlementPayment(rental.getId())) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Đơn thuê đã hoàn tất thanh toán cuối, không thể hủy dịch vụ đã chốt trên hóa đơn!"));
+        }
+
+        String serviceName = usage.getService() != null ? usage.getService().getName() : "dịch vụ";
+        serviceUsageRepository.delete(usage);
+
+        return ResponseEntity.ok(Map.of("message", "Đã hủy " + serviceName + " khỏi đơn thuê thành công."));
     }
 }
