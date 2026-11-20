@@ -155,7 +155,7 @@ public class CustomerBookingService {
             
             detail.setAdultCount(request.getAdultCounts().get(i));
             detail.setChildrenCount(request.getChildrenCounts().get(i));
-            detail.setUnitPrice(billingService.resolveRoomUnitPrice(room, checkIn, type));
+            detail.setUnitPrice(billingService.resolveRoomUnitPrice(room, checkIn, type, customer));
             detail.setStatus(RentalDetailStatus.PENDING);
             detail.setRoom(room);
             detail.setRental(rental);

@@ -17,34 +17,34 @@ public class Incident {
     @Column(name = "INCIDENT_ID", length = 10)
     private String id;
 
-    @Column(name = "INCIDENT_Name")
+    @Column(name = "INCIDENT_Name", length = 255, nullable = false)
     private String name;
 
-    @Column(name = "INCIDENT_OccurTime")
+    @Column(name = "INCIDENT_OccurTime", nullable = false)
     private LocalDateTime occurTime;
 
     @Column(name = "INCIDENT_Description", length = 255)
     private String description;
 
-    @Column(name = "INCIDENT_Responsible", length = 80)
+    @Column(name = "INCIDENT_Responsible", length = 80, nullable = false)
     private String responsible;
 
-    @Column(name = "INCIDENT_Money")
+    @Column(name = "INCIDENT_Money", nullable = false)
     private Double money;
 
     @Column(name = "INCIDENT_Handle", length = 255)
     private String handle;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "INCIDENT_Status", length = 21)
+    @Column(name = "INCIDENT_Status", length = 21, nullable = false)
     private IncidentStatus status;
 
-    @ManyToOne
+    @ManyToOne(optional = false)
     @JsonIgnore
-    @JoinColumn(name = "RENTAL_DETAIL_ID")
+    @JoinColumn(name = "RENTAL_DETAIL_ID", nullable = false)
     private RentalDetail rentalDetail;
 
     @ManyToOne
-    @JoinColumn(name = "CREATED_BY")
+    @JoinColumn(name = "CREATED_BY", nullable = false)
     private Users createdBy;
 }

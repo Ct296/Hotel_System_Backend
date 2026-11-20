@@ -34,6 +34,7 @@ public class StaffBookingService {
     private final PaymentRepository paymentRepository;
     private final UsersRepository usersRepository;
     private final CustomerRepository customerRepository;
+    private final StaffRepository staffRepository;
 
     @Transactional
     public String createWalkInRental(WalkInRequest request) {
@@ -74,9 +75,17 @@ public class StaffBookingService {
         Rental rental = new Rental();
         rental.setId(AppUtils.generateId("REN", 10));
         rental.setRentDate(LocalDateTime.now());
-        rental.setIsBooking(true);
+        rental.setIsBooking(false);
         rental.setStatus(RentalStatus.PENDING);
         rental.setCustomer(customer);
+
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated()) {
+            usersRepository.findByEmail(auth.getName())
+                    .flatMap(u -> staffRepository.findById(u.getId()))
+                    .ifPresent(rental::setStaff);
+        }
+
         rental = rentalRepository.save(rental);
 
         for (int i = 0; i < roomIds.size(); i++) {
@@ -91,7 +100,7 @@ public class StaffBookingService {
             detail.setRentalType(type);
             detail.setAdultCount(adultCounts.get(i));
             detail.setChildrenCount(childrenCounts.get(i));
-            detail.setUnitPrice(billingService.resolveRoomUnitPrice(room, checkIn, type));
+            detail.setUnitPrice(billingService.resolveRoomUnitPrice(room, checkIn, type, customer));
             detail.setStatus(RentalDetailStatus.PENDING);
 
             if (i == 0 && customer != null && customer.getUser() != null) {
@@ -156,7 +165,7 @@ public class StaffBookingService {
     @Transactional
     public String cancelBooking(String rentalId) {
         Rental rental = rentalRepository.findById(rentalId).orElse(null);
-        if (rental == null || !Boolean.TRUE.equals(rental.getIsBooking())) {
+        if (rental == null || rental.getStatus() != RentalStatus.PENDING) {
             throw new IllegalArgumentException("Không thể huỷ.");
         }
 

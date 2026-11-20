@@ -244,9 +244,8 @@ public class CustomerController {
         for (Room room : selectedRooms) {
             double basePrice = 0.0;
             if (rentalType == RentalType.DAILY) {
-                basePrice = room.getRoomType() != null && room.getRoomType().getDailyPrice() != null ?
-                            room.getRoomType().getDailyPrice() :
-                            (room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
+                basePrice = room.getRoomType() != null && room.getRoomType().getDailyPrice() != null
+                    ? room.getRoomType().getDailyPrice() : 0.0;
             } else {
                 basePrice = room.getRoomType() != null && room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() : 0.0;
             }

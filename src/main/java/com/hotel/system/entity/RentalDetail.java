@@ -20,17 +20,17 @@ public class RentalDetail {
     @Column(name = "RENTAL_DETAIL_ID", length = 10)
     private String id;
 
-    @Column(name = "RENTAL_DETAIL_CheckinDate")
+    @Column(name = "RENTAL_DETAIL_CheckinDate", nullable = false)
     private LocalDateTime checkinDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "RENTAL_DETAIL_Type", length = 20)
+    @Column(name = "RENTAL_DETAIL_Type", length = 20, nullable = false)
     private RentalType rentalType = RentalType.HOURLY;
 
     @Column(name = "RENTAL_DETAIL_LengthOfStay")
     private Integer lengthOfStay;
 
-    @Column(name = "RENTAL_DETAIL_UnitPrice")
+    @Column(name = "RENTAL_DETAIL_UnitPrice", nullable = false)
     private Double unitPrice;
 
         @Column(name = "RENTAL_DETAIL_AdultCount", nullable = false)
@@ -40,16 +40,16 @@ public class RentalDetail {
     private Integer childrenCount;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "RENTAL_DETAIL_Status", length = 20)
+    @Column(name = "RENTAL_DETAIL_Status", length = 20, nullable = false)
     private RentalDetailStatus status;
 
     @ManyToOne
     @JsonIgnore
-    @JoinColumn(name = "RENTAL_ID", referencedColumnName = "RENTAL_ID")
+    @JoinColumn(name = "RENTAL_ID", referencedColumnName = "RENTAL_ID", nullable = false)
     private Rental rental;
 
     @ManyToOne
-    @JoinColumn(name = "ROOM_ID", referencedColumnName = "ROOM_ID")
+    @JoinColumn(name = "ROOM_ID", referencedColumnName = "ROOM_ID", nullable = false)
     private Room room;
 
     @OneToMany(mappedBy = "rentalDetail", cascade = CascadeType.ALL, orphanRemoval = true)

@@ -128,8 +128,7 @@ public class CustomerHelperService {
 
         double basePrice = 0.0;
         if (rentalType == RentalType.DAILY) {
-            basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() :
-                        (room.getRoomType().getBasePrice() != null ? room.getRoomType().getBasePrice() * 22 : 0.0);
+            basePrice = room.getRoomType().getDailyPrice() != null ? room.getRoomType().getDailyPrice() : 0.0;
         } else {
             basePrice = room.getRoomType().getBasePrice() == null ? 0.0 : room.getRoomType().getBasePrice();
         }

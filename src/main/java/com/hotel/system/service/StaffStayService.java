@@ -222,7 +222,7 @@ public class StaffStayService {
         LocalDateTime now = LocalDateTime.now();
         RentalType rentalType = oldDetail.getRentalType() != null ? oldDetail.getRentalType() : RentalType.HOURLY;
         double oldPrice = oldDetail.getUnitPrice() != null ? oldDetail.getUnitPrice() : 0.0;
-        double newRoomMarketPrice = billingService.resolveRoomUnitPrice(newRoom, now, rentalType);
+        double newRoomMarketPrice = billingService.resolveRoomUnitPrice(newRoom, now, rentalType, oldDetail.getRental().getCustomer());
 
         boolean isHotelFault = "HOTEL_FAULT".equals(reasonType);
         double resolvedNewPrice = isHotelFault ? Math.min(oldPrice, newRoomMarketPrice) : newRoomMarketPrice;
@@ -331,8 +331,21 @@ public class StaffStayService {
     private void sendCheckoutEmail(Rental rental) {
         if (rental.getCustomer() == null || rental.getCustomer().getUser() == null) return;
         Users u = rental.getCustomer().getUser();
+
+        Bill settlementBill = billRepository.findByRentalIdOrderByCreateDateDesc(rental.getId()).stream()
+                .filter(b -> b.getType() == BillType.FINAL || b.getType() == BillType.REFUND)
+                .findFirst().orElse(null);
+
         BillingSummary summary = billingService.buildBillingSummary(rental);
-        double baseRoomOnly = Math.max(0.0, summary.roomAmount() - summary.earlyCheckinSurcharge() - summary.lateCheckoutSurcharge());
+        double roomAmount = (settlementBill != null && settlementBill.getActualRoomAmount() != null)
+                ? settlementBill.getActualRoomAmount() : summary.roomAmount();
+        double earlySurcharge = (settlementBill != null && settlementBill.getEarlyCheckinSurcharge() != null)
+                ? settlementBill.getEarlyCheckinSurcharge() : summary.earlyCheckinSurcharge();
+        double lateSurcharge = (settlementBill != null && settlementBill.getLateCheckoutSurcharge() != null)
+                ? settlementBill.getLateCheckoutSurcharge() : summary.lateCheckoutSurcharge();
+        double finalAmount = (settlementBill != null && settlementBill.getTotalAmount() != null)
+                ? settlementBill.getTotalAmount() : summary.finalAmount();
+        double baseRoomOnly = Math.max(0.0, roomAmount - earlySurcharge - lateSurcharge);
 
         Set<String> detailIds = rental.getRentalDetails().stream().map(RentalDetail::getId).collect(Collectors.toSet());
         List<ServiceUsage> usages = serviceUsageRepository.findAllByOrderByTimeDesc().stream()
@@ -361,10 +374,10 @@ public class StaffStayService {
         emailService.sendCheckoutThankYouEmail(
                 u.getEmail(), AppUtils.buildFullName(u.getFirstName(), u.getLastName()),
                 rental.getId(), rentalOperationService.extractRoomNames(rental),
-                AppUtils.formatMoney(baseRoomOnly), AppUtils.formatMoney(summary.earlyCheckinSurcharge()),
-                AppUtils.formatMoney(summary.lateCheckoutSurcharge()), svcText.toString(),
+                AppUtils.formatMoney(baseRoomOnly), AppUtils.formatMoney(earlySurcharge),
+                AppUtils.formatMoney(lateSurcharge), svcText.toString(),
                 AppUtils.formatMoney(summary.serviceAmount()), AppUtils.formatMoney(summary.depositPaid()),
-                AppUtils.formatMoney(summary.finalAmount()), paymentMethodStr, tierName
+                AppUtils.formatMoney(finalAmount), paymentMethodStr, tierName
         );
     }
 }

@@ -9,7 +9,7 @@ import com.hotel.system.entity.enums.IncidentStatus;
 import com.hotel.system.repository.IncidentRepository;
 import com.hotel.system.repository.RentalDetailRepository;
 import com.hotel.system.repository.UsersRepository;
-import com.hotel.system.util.AppUtils; // <-- Đã import thư viện sinh ID của bạn
+import com.hotel.system.util.AppUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,11 +24,12 @@ public class IncidentService {
 
     @Transactional
     public void createIncident(IncidentCreateRequest request, String username) {
-        RentalDetail rentalDetail = null;
-        if (request.getRentalDetailId() != null && !request.getRentalDetailId().isBlank()) {
-            rentalDetail = rentalDetailRepository.findById(request.getRentalDetailId())
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy chi tiết thuê phòng"));
+        if (request.getRentalDetailId() == null || request.getRentalDetailId().isBlank()) {
+            throw new RuntimeException("Vui lòng chọn phòng đang lưu trú xảy ra sự cố");
         }
+
+        RentalDetail rentalDetail = rentalDetailRepository.findById(request.getRentalDetailId())
+            .orElseThrow(() -> new RuntimeException("Không tìm thấy chi tiết thuê phòng"));
                 
         Users creator = usersRepository.findByEmail(username)
                  .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin nhân viên"));

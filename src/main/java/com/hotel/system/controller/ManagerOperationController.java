@@ -136,6 +136,9 @@ public class ManagerOperationController {
         if (roomTypeRepository.findByName(trimmedName) != null) {
             return ResponseEntity.badRequest().body(Map.of("error", "Tên loại phòng đã tồn tại."));
         }
+        if (request.getDailyPrice() == null || request.getDailyPrice() < 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Giá thuê theo ngày không hợp lệ."));
+        }
 
         RoomType roomType = new RoomType();
         roomType.setId(AppUtils.generateId("RTY", 10));
@@ -169,6 +172,10 @@ public class ManagerOperationController {
         RoomType existingByName = roomTypeRepository.findByName(trimmedName);
         if (existingByName != null && !existingByName.getId().equals(id)) {
             return ResponseEntity.badRequest().body(Map.of("error", "Tên loại phòng đã tồn tại."));
+        }
+
+        if (request.getDailyPrice() == null || request.getDailyPrice() < 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Giá thuê theo ngày không hợp lệ."));
         }
 
         roomType.setUpdateDate(LocalDateTime.now());

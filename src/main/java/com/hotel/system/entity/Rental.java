@@ -20,21 +20,21 @@ public class Rental {
     @Column(name = "RENTAL_ID", length = 10)
     private String id;
 
-    @Column(name = "RENTAL_RentDate")
+    @Column(name = "RENTAL_RentDate", nullable = false)
     private LocalDateTime rentDate;
 
     @Column(name = "RENTAL_Note")
     private String note;
 
-    @Column(name = "RENTAL_IsBooking")
+    @Column(name = "RENTAL_IsBooking", nullable = false)
     private Boolean isBooking;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "RENTAL_Status", length = 20)
+    @Column(name = "RENTAL_Status", length = 20, nullable = false)
     private RentalStatus status;
 
     @ManyToOne
-    @JoinColumn(name = "CUSTOMER_ID", referencedColumnName = "USER_ID")
+    @JoinColumn(name = "CUSTOMER_ID", referencedColumnName = "USER_ID", nullable = false)
     private Customer customer;
 
     @ManyToOne

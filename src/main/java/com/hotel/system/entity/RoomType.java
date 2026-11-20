@@ -37,7 +37,7 @@ public class RoomType {
     @Column(name = "ROOM_TYPE_BasePrice", nullable = false)
     private Double basePrice;
 
-    @Column(name = "ROOM_TYPE_DailyPrice")
+    @Column(name = "ROOM_TYPE_DailyPrice", nullable = false)
     private Double dailyPrice;
 
     @Column(name = "ROOM_TYPE_DepositPercent", nullable = false)

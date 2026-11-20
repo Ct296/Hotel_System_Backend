@@ -197,7 +197,16 @@ public class IncidentApiController {
         incident.setStatus(com.hotel.system.entity.enums.IncidentStatus.valueOf((String) payload.get("status"))); 
         
         String rentalDetailId = (String) payload.get("rentalDetailId");
-        if (rentalDetailId != null && !rentalDetailId.isBlank()) {
+        if (isCreate) {
+            if (rentalDetailId == null || rentalDetailId.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Vui lòng chọn phòng đang lưu trú xảy ra sự cố."));
+            }
+            RentalDetail rd = rentalDetailRepository.findById(rentalDetailId).orElse(null);
+            if (rd == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Không tìm thấy chi tiết thuê phòng."));
+            }
+            incident.setRentalDetail(rd);
+        } else if (rentalDetailId != null && !rentalDetailId.isBlank()) {
             rentalDetailRepository.findById(rentalDetailId).ifPresent(incident::setRentalDetail);
         }
 
