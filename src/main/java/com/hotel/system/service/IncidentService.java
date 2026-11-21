@@ -21,33 +21,48 @@ public class IncidentService {
     private final IncidentRepository incidentRepository;
     private final RentalDetailRepository rentalDetailRepository;
     private final UsersRepository usersRepository;
+    private final BillingService billingService;
 
     @Transactional
-    public void createIncident(IncidentCreateRequest request, String username) {
-        if (request.getRentalDetailId() == null || request.getRentalDetailId().isBlank()) {
-            throw new RuntimeException("Vui lòng chọn phòng đang lưu trú xảy ra sự cố");
-        }
-
-        RentalDetail rentalDetail = rentalDetailRepository.findById(request.getRentalDetailId())
-            .orElseThrow(() -> new RuntimeException("Không tìm thấy chi tiết thuê phòng"));
-                
-        Users creator = usersRepository.findByEmail(username)
-                 .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin nhân viên"));
-
-        // 3. Ghi nhận sự cố mới
-        Incident incident = new Incident();
-        incident.setId(AppUtils.generateId("ICD", 10)); 
-        incident.setName(request.getName());
-        incident.setOccurTime(request.getOccurTime());
-        incident.setDescription(request.getDescription());
-        incident.setStatus(IncidentStatus.PENDING);
-        incident.setResponsible("HOTEL"); 
-        incident.setMoney(0.0);
-        incident.setRentalDetail(rentalDetail);
-        incident.setCreatedBy(creator);
-
-        incidentRepository.save(incident);
+public void createIncident(IncidentCreateRequest request, String username) {
+    if (request.getName() == null || request.getName().isBlank()) {
+        throw new RuntimeException("Tên sự cố không được để trống");
     }
+    if (request.getOccurTime() == null) {
+        throw new RuntimeException("Thời gian xảy ra sự cố không hợp lệ");
+    }
+    if (request.getRentalDetailId() == null || request.getRentalDetailId().isBlank()) {
+        throw new RuntimeException("Vui lòng chọn phòng đang lưu trú xảy ra sự cố");
+    }
+
+    RentalDetail rentalDetail = rentalDetailRepository.findById(request.getRentalDetailId())
+        .orElseThrow(() -> new RuntimeException("Không tìm thấy chi tiết thuê phòng"));
+
+    if (rentalDetail.getStatus() != com.hotel.system.entity.enums.RentalDetailStatus.CHECKED_IN
+            && rentalDetail.getStatus() != com.hotel.system.entity.enums.RentalDetailStatus.OVERDUE) {
+        throw new RuntimeException("Chỉ có thể báo cáo sự cố cho phòng đang lưu trú.");
+    }
+
+    if (rentalDetail.getRental() == null || billingService.hasSettlementBill(rentalDetail.getRental().getId())) {
+        throw new RuntimeException("Đơn thuê này đã tất toán, không thể tạo thêm sự cố.");
+    }
+
+    Users creator = usersRepository.findByEmail(username)
+             .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin nhân viên"));
+
+    Incident incident = new Incident();
+    incident.setId(AppUtils.generateId("ICD", 10));
+    incident.setName(request.getName().trim());
+    incident.setOccurTime(request.getOccurTime());
+    incident.setDescription(request.getDescription());
+    incident.setStatus(IncidentStatus.PENDING);
+    incident.setResponsible("HOTEL");
+    incident.setMoney(0.0);
+    incident.setRentalDetail(rentalDetail);
+    incident.setCreatedBy(creator);
+
+    incidentRepository.save(incident);
+}
 
     @Transactional
     public void updateIncident(String incidentId, IncidentUpdateRequest request) {

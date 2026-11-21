@@ -32,6 +32,7 @@ public class StaffStayService {
     private final ServiceUsageRepository serviceUsageRepository;
     private final BillRepository billRepository;
     private final PaymentRepository paymentRepository;
+    private final IncidentRepository incidentRepository;
 
     @Transactional
     public String addServiceToRental(String rentalId, Map<String, Object> payload) {
@@ -97,6 +98,11 @@ public class StaffStayService {
 
         if (billingService.hasSettlementBill(rentalId)) {
             throw new IllegalArgumentException("Đơn thuê này đã được tất toán trước đó.");
+        }
+
+        long unresolvedIncidents = incidentRepository.countByRentalDetail_Rental_IdAndStatusNot(rentalId, IncidentStatus.RESOLVED);
+        if (unresolvedIncidents > 0) {
+            throw new IllegalArgumentException("Không thể tất toán vì đơn thuê còn " + unresolvedIncidents + " sự cố chưa được quản lý giải quyết xong.");
         }
 
         Map<String, String> safePayload = payload != null ? payload : Map.of();
@@ -167,6 +173,11 @@ public class StaffStayService {
 
         if (!billingService.hasSettlementBill(rentalId)) {
             throw new IllegalArgumentException("Chưa thể check-out. Cần tất toán hoặc xác nhận hoàn tiền trước.");
+        }
+
+        long unresolvedIncidents = incidentRepository.countByRentalDetail_Rental_IdAndStatusNot(rentalId, IncidentStatus.RESOLVED);
+        if (unresolvedIncidents > 0) {
+            throw new IllegalArgumentException("Không thể check-out vì đơn thuê còn " + unresolvedIncidents + " sự cố chưa được giải quyết xong.");
         }
 
         rental.setStatus(RentalStatus.COMPLETED);

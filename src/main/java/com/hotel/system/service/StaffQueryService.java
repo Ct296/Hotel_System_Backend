@@ -48,10 +48,10 @@ public class StaffQueryService {
         List<Rental> rentals = rentalRepository.findAll();
 
         long pendingCount = rentals.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getIsBooking()) && r.getStatus() == RentalStatus.PENDING).count();
+                .filter(r -> r.getStatus() == RentalStatus.PENDING).count();
 
         List<Rental> todayArrivalsList = rentals.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getIsBooking()) && r.getStatus() == RentalStatus.CONFIRMED)
+                .filter(r -> r.getStatus() == RentalStatus.CONFIRMED)
                 .filter(r -> r.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
                 .filter(r -> !r.getRentalDetails().isEmpty() && r.getRentalDetails().get(0).getCheckinDate() != null)
                 .filter(r -> r.getRentalDetails().get(0).getCheckinDate().toLocalDate().isEqual(LocalDate.now()))
@@ -126,12 +126,12 @@ public class StaffQueryService {
                 .toList();
 
         List<Map<String, Object>> pendingBookings = rentals.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getIsBooking()) && r.getStatus() == RentalStatus.PENDING)
+                .filter(r -> r.getStatus() == RentalStatus.PENDING)
                 .map(this::buildBookingMap)
                 .toList();
 
         List<Map<String, Object>> todayArrivals = rentals.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getIsBooking()) && r.getStatus() == RentalStatus.CONFIRMED)
+                .filter(r -> r.getStatus() == RentalStatus.CONFIRMED)
                 .filter(r -> r.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
                 .filter(r -> !r.getRentalDetails().isEmpty() && r.getRentalDetails().get(0).getCheckinDate() != null)
                 .filter(r -> r.getRentalDetails().get(0).getCheckinDate().toLocalDate().isEqual(LocalDate.now()))
@@ -139,7 +139,7 @@ public class StaffQueryService {
                 .toList();
 
         List<Map<String, Object>> allConfirmedBookings = rentals.stream()
-                .filter(r -> Boolean.TRUE.equals(r.getIsBooking()) && r.getStatus() == RentalStatus.CONFIRMED)
+                .filter(r -> r.getStatus() == RentalStatus.CONFIRMED)
                 .filter(r -> r.getRentalDetails().stream().anyMatch(d -> d.getStatus() == RentalDetailStatus.PENDING))
                 .map(this::buildBookingMap)
                 .toList();
@@ -263,15 +263,18 @@ public class StaffQueryService {
                 .orElseThrow(() -> new NoSuchElementException("Tài khoản không thuộc về khách hàng."));
     }
 
-    private Map<String, Object> buildBookingMap(Rental rental) {
+        private Map<String, Object> buildBookingMap(Rental rental) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", rental.getId());
+        map.put("isBooking", rental.getIsBooking());
+        map.put("rentDate", rental.getRentDate());
+        map.put("note", rental.getNote());
         map.put("customer", rental.getCustomer());
         map.put("rentalDetails", rental.getRentalDetails());
         map.put("status", rental.getStatus());
         map.put("depositAmount", billingService.calculateDepositAmount(rental));
         return map;
-    }
+        }
 
     private int normalizeTimelineOffsetHours(Integer offset) {
         if (offset == null) return 0;
